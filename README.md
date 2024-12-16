@@ -1,6 +1,6 @@
 # Music-Translation-for-and-by-Deaf
 
-# The purpose of this program is to assist deaf and HOH peoples with understanding music. 
+# The purpose of this program is to assist Deaf and HOH peoples with understanding music. 
 # This app will allow user to choose a song of their choice.
 # The main function of the app will be to horizontally scroll through the lyrics with a notation for the user to follow along.
 # The main function will be at the top of the screen.
