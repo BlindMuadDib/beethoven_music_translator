@@ -2,4 +2,7 @@ beautifulsoup4
 requests
 tkinter
 pygame
+string
+os
+subprocess
 textgrid
