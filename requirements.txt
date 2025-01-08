@@ -1,5 +1,5 @@
 beautifulsoup4
 requests
 speechrecognition
-pydub
+tkinter
 pygame
