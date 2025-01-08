@@ -10,6 +10,7 @@ Tertiary functions may include representation of other instrumentation, eg. guit
 Tertiary functions may also include ASL direct translations, NOT TO BE CONFUSED WITH ASL INTERPRETATION NOR SIGNED EXACT ENGLISH (SEE).
 
 # To download and run the Alpha version of the singalongapp portion of the Music Translator
+* You will need to download and install either podman or docker then pull the docker.io/mmcauliffe/montreal-forced-aligner:latest
 * Create a parent directory (ie. music_translator)
 * Download the singalongapp.py file into the parent directory
 * Create a child directory called /singalongapp/
