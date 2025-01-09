@@ -21,6 +21,6 @@ Tertiary functions may also include ASL direct translations, NOT TO BE CONFUSED 
 * Open a CLI and navigate to the parent directory /music_translator/
 * If you need a python virtualenv; execute the command "python3 -m venv venv --system-site-packages" The first venv calls the virtualenv, the second names it. Feel free to change the name to whatever you want
 * This will create your virtualenv. To enable it execute "source venv/bin/activate". If you changed the name, replace "venv" with the name you chose. You can close the virtualenv with "deactivate" and "rm -rf venv" if you want to remove the venv files
-* Now execute "pip install -r ./singalongapp/requirements.txt"
+* With your python virualenv active, execute "pip install -r ./singalongapp/requirements.txt"
 * Whether you do or don't need a venv, the next step is the same:
 * Execute the command "python singalongapp.py"
