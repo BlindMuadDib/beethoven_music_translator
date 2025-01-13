@@ -47,3 +47,12 @@ This project adheres to the licensing terms of the software it incorporates:
 - [MIT License](https://opensource.org/licenses/MIT) for Spleeter and Montreal Forced Aligner.
 
 This project itself is licensed under GPL. Please review the `LICENSE` file for more details.
+
+## Acknowledgements
+
+This project would not be possible without the contributions of:
+- [Deezer's Spleeter](https://github.com/deezer/spleeter), for their open-source music source separation library.
+- [Montreal Forced Aligner](https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner), for their alignment tools.
+
+Thank you to the developers and maintainers of these invaluable tools.
+
