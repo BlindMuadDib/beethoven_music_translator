@@ -24,3 +24,26 @@ Tertiary functions may also include ASL direct translations, NOT TO BE CONFUSED 
 * With your python virualenv active, execute "pip install -r ./singalongapp/requirements.txt"
 * Whether you do or don't need a venv, the next step is the same:
 * Execute the command "python singalongapp.py"
+
+# Music Translator by and for Deaf
+
+This project is designed to help translate music to those who can't hear it. 
+
+## Key Technologies
+This project leverages the following tools:
+
+### Spleeter
+- **Purpose**: Audio source separation (e.g., isolating vocals from background music).
+- **Repository**: [Spleeter on GitHub](https://github.com/deezer/spleeter)
+- **License**: MIT License
+
+### Montreal Forced Aligner (MFA)
+- **Purpose**: Forced alignment of speech with corresponding transcripts.
+- **Repository**: [Montreal Forced Aligner](https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner)
+- **License**: MIT License
+
+## Licensing
+This project adheres to the licensing terms of the software it incorporates:
+- [MIT License](https://opensource.org/licenses/MIT) for Spleeter and Montreal Forced Aligner.
+
+This project itself is licensed under GPL. Please review the `LICENSE` file for more details.
