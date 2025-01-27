@@ -1,9 +1,9 @@
 import os
 import shutil
 from tkinter import messagebox
-from selectfiles.selectfiles import select_library_dir, select_spleeter_dir, select_mfa_corpus_dir, select_alignment_dir
-from preprocessdatabase.preprocess_audio import preprocess_audio
-from preprocessdatabase.alignment import run_montreal_forced_aligner
+from musictranslator.selectfiles.selectfiles import select_library_dir, select_spleeter_dir, select_mfa_corpus_dir, select_alignment_dir
+from .preprocess_audio import preprocess_audio
+from .alignment import run_montreal_forced_aligner
 
 def db_translation():
     """Allow user to process entire library at once for faster translation access later"""
