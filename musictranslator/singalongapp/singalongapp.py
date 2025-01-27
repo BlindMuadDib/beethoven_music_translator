@@ -1,9 +1,9 @@
 import os
-from selectfiles import select_audio, select_transcript, select_aligned_transcript, select_spleeter_dir, select_library_dir, select_alignment_dir
-from singalongapp.maptranscript import process_transcript, create_alignment_dict, sync_alignment_dict_with_transcript_lines
-from singalongapp.displaylyrics import display_lyrics
-from preprocessdatabase.preprocess_audio import preprocess_audio
-from preprocessdatabase.alignment import run_montreal_forced_aligner
+from musictranslator.selectfiles.selectfiles import select_audio, select_transcript, select_aligned_transcript, select_spleeter_dir, select_library_dir, select_alignment_dir
+from .maptranscript import process_transcript, create_alignment_dict, sync_alignment_dict_with_transcript_lines
+from .displaylyrics import display_lyrics
+from musictranslator.preprocessdatabase.preprocess_audio import preprocess_audio
+from musictranslator.preprocessdatabase.alignment import run_montreal_forced_aligner
 
 def singalongapp():
     """Main Function of the lyric tracking display"""
