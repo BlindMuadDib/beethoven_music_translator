@@ -3,6 +3,9 @@ from music_processing.transcript_mapping import create_synchronized_transcript_j
 import os
 import requests
 import base64
+import magic
+import re
+import subprocess
 
 app = Flask(__name__)
 
@@ -116,6 +119,72 @@ def generate_synchronized_transcript():
             return jsonify({'error': f"Error reading transcript JSON: {e}"}), 500
     else:
         return jsonify({'error': 'Failed to generate synchronized transcript'}), 500
+
+
+def validate_audio(filepath):
+    try:
+        result = subprocess.run(['ffmpeg', '-i', filepath, '-f', 'null', '-'],
+                                capture_output=True, stderr=subprocess.PIPE)
+        if result.returncode == 0:
+            return True
+        else:
+            return False
+    except Exception as e:
+        print(f"Error validating audio: {e}")
+        return False
+
+@app.route('/upload_audio', methods=['POST'])
+def upload_audio():
+    audio_file = request.files['audio']
+    artist = request.form.get('artist')
+    song = request.form.get('song')
+
+    if not audio_file or not artist or not song:
+        return jsonify({'error': 'Missing file or metadata'}), 400
+
+    file_type = magic.from_buffer(audio_file.read(2048), mime=True)
+    audio_file.seek(0)
+
+    if file_type != 'audio/wav':
+        return jsonify({'error': 'Invalid file type'}), 400
+
+    temp_filepath = "temp_audio.wav"
+    audio_file.save(temp_filepath)
+
+    if not validate_audio(temp_filepath):
+        os.remove(temp_filepath)
+        return jsonify({'error': 'Invalid audio file'}), 400
+
+    filename = f"{artist}_{song}.wav"
+    audio_file.save(os.path.join(AUDIO_DIR, filename))
+    os.remove(temp_filepath)
+
+    return jsonify({'message': 'Audio uploaded successfully'})
+
+@app.route('/upload_lyrics', methods=['POST'])
+def upload_lyrics():
+    lyrics_file = request.files['lyrics']
+    artist = request.form.get('artist')
+    song = request.form.get('song')
+
+    if not lyrics_file or not artist or not song:
+        return jsonify({'error': 'Missing file or metadata'}), 400
+
+    file_type = megic.from_buffer(lyrics_file.read(2048), mime=True)
+    lyrics_file.seek(0)
+
+    if file_type != 'text/plain':
+        return jsonify({'error': 'Invalid file type'}), 400
+
+    lyrics_content = lyrics_file.read().decode('utf-8')
+
+    if not re.match(r'^[a-zA-Z0-9\s\n.,!?]+$', lyrics_content):
+        return jsonify({'error': 'Invalid lyrics content'}), 400
+
+    filename = f"{artist}_{song}.txt"
+    lyrics_file.save(os.path.join(LYRICS_DIR, filename))
+
+    return jsonify({'message': 'Lyrics uploaded successfully'})
 
 if __name__ == "__main__":
     app.run(debug=True, host='127.0.0.1')
