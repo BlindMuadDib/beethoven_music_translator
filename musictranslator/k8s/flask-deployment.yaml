@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadeta:
+  name: flask-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flask-app
+  template:
+    metadata:
+      labels:
+        app: flask-app
+    spec:
+      containers:
+        - name: flask-container
+          image: music-translator-flask:latest
+          ports:
+            - containerPort: 24725
