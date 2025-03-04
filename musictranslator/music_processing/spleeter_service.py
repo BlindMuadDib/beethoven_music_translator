@@ -11,7 +11,6 @@ def split_audio(input_file, vocals_output, accompaniment_output, drums_output, b
             files = {'audio': audio_file}
             response = requests.post(SPLEETER_SERVICE_URL, files=files)
             response.raise_for_status()
-
             # The wrapper service has now created the files
             return True
 

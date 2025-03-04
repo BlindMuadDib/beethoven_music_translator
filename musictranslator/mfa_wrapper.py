@@ -2,7 +2,9 @@ from flask import Flask, request, jsonify
 import subprocess
 import os
 import tempfile
-impot shutil
+import shutil
+import json
+import textgrid
 
 app = Flask(__name__)
 
@@ -22,17 +24,13 @@ def align():
 
         # Download the models and dictionaries
         subprocess.run([
-            "docker", "run", "--rm", "-v",
-            f"{os.path.abspath('./music')}:/data", "docker.io/mmcauliffe/montreal-forced-aligner:latest",
             "mfa", "model", "download", "acoustic", "english_us_arpa",
             "mfa", "model", "download", "dictionary", "english_us_arpa"
         ])
 
         # Validate the corpus
         Validation_result = subprocess.run([
-            "docker", "run", "--rm", "-v",
-            f"{os.path.abspath('./music')}:/data", "docker.io/mmcauliffe/montreal-forced-aligner:latest",
-            "mfa", "validate", f"/data/MFA/corpus",
+            "mfa", "validate", "/data/MFA/corpus",
             "english_us_arpa", "english_us_arpa"
             ], capture_output=True, text=True)
 
@@ -41,27 +39,39 @@ def align():
 
         # Perform alignment
         alignment_result = subprocess.run([
-            "docker", "run", "--rm", "-v",
-            f"{os.path.abspath('./music')}:/data", "docker.io/mmcauliffe/montreal-forced-aligner:latest",
-            "mfa", "align", f"/data/MFA/corpus}",
-            "english_us_arpa", "english_us_arpa", f"/data/MFA/output"
-            ], capture_output=True, text=True)
+            "mfa", "align", audio_path, lyrics_path,
+            "english_us_arpa", "english_us_arpa", "aligned"
+            ], cwd=temp_dir, capture_output=True, text=True)
 
         # If alignment fails on intial attempt, increase beam size
         # Solves failed alingment for most songs
         if alignment_result.returncode != 0:
             retry_result = subprocess.run([
-                "docker", "run", "--rm", "-v",
-                f"{os.path.abspath('./music')}:/data", "docker.io/mmcauliffe/montreal-forced-aligner:latest"
-                "mfa", "align", f"/data/MFA/corpus}",
-                "english_us_arpa", "english_us_arpa", f"/data/MFA/output",
+                "mfa", "align", audio_path, lyrics_path,
+                "english_us_arpa", "english_us_arpa", "aligned",
                 "--beam", "100", "--retry_beam", "400"
-                ], capture_output=True, text=True)
+                ], cwd=temp_dir, capture_output=True, text=True)
 
             if retry_result.returncode != 0:
                 return jsonify({'error': f"Alignmnet failed: {retry_result.stderr}"}), 500
 
-        return jsonify({'message': 'Alignment successful'})
+        textgrid_path = os.path.join(temp_dir, 'aligned', 'aligned.TextGrid')
+        tg = textgrid.TextGrid.fromFile(textgrid_path)
+        words_tier = tg.getFirst('words')
+        if not words_tier:
+            raise ValueError("The 'words' tier is missing from the TextGrid")
+
+        alignment_data = {
+            "tier_name": words_tier.name,
+            "intervals": [
+                {
+                    "xmin": interval.minTime,
+                    "xmax": interval.maxTime,
+                    "word": interval.mark
+                } for interval in words_tier.intervals
+            ]
+        }
+        return jsonify(alignment_data)
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500

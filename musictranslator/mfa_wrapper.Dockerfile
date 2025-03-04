@@ -1,4 +1,4 @@
-FROM python:3.9-slim-buster
+FROM mmcauliffe/montreal-forced-aligner:latest
 WORKDIR /app
 COPY requirements.txt
 RUN pip install -r requirements.txt

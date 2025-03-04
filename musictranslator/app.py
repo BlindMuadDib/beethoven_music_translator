@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from music_processing.transcript_mapping import create_synchronized_transcript_json
 import os
 import requests
+import base64
 
 app = Flask(__name__)
 
@@ -30,9 +31,14 @@ def split():
         return jsonify({'error': 'No audio file provided'}), 400
 
     try:
+        response =requests.post(SPLEETER_SERVICE_URL, files=files)
+        response.raise_for_status()
+        results = response.json()
         output_dir = os.path.join(SPLEETER_OUTPUT_DIR, song_name) if song_name else "temp_spleeter_output"
         os.makedirs(output_dir, exist_ok=True)
-        split_audio(input_audio, os.path.join(output_dir, "vocals.wav"), os.path.join(output_dir, "accompaniment.wav"), os.path.join(output_dir, "drums.wav"), os.path.join(output_dir, "bass.wav"))
+        for stem, data in results.items():
+            with open(os.path.join(output_dir, f"{stem}.wav"), "wb") as f:
+                f.write(base64decode(data))
         return jsonify({'message': 'Audio split successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -54,8 +60,12 @@ def align():
         return jsonify({'error': 'No lyrics file provided'}), 400
 
     try:
+        response = requests.pst(MFA_SERVICE_URL, files=files)
+        response.raise_for_status()
+        alignment_data = response.json()
         output_file = os.path.join(MFA_OUTPUT_DIR, f"{song_name}.json") if song_name else "aligned_output.txt"
-        align_lyrics(os.path.join(SPLEETER_OUTPUT_DIR, song_name, "vocals.wav"), input_lyrics, output_file, DATA_DIR, 'MFA', 'output')
+        with open(output_file, 'w') as f:
+            json.dump(alignment_data, f, indent=4)
         return jsonify({'message': 'Lyrics aligned successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

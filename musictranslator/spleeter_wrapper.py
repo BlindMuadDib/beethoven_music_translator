@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import subprocess
 import os
+import base64
 
 app = Flask(__name__)
 
@@ -17,14 +18,13 @@ def split():
             '-o', '.',
             "input_audio.wav"
         ])
-        #Move the generated files to the desired output names.
-        subprocess.run(['mv', f'input_audio/vocals.wav', "vocals.wav"])
-        subprocess.run(['mv', f'input_audio/accompaniment.wav', "accompaniment.wav"])
-        subprocess.run(['mv', f'input_audio/drums.wav', "drums.wav"])
-        subprocess.run(['mv', f'input_audio/bass.wav', "bass.wav"])
-        subprocess.run(['rm', '-rf', 'input_audio']) # remove the folder created by spleeter.
+        results = {}
+        for stem in ["vocal", "accompaniment", "drums", "bass"]:
+            with open(f"input_audio/{stem}.wav", "rb") as f:
+                results[stem] = base64.b64encode(f.read()).decode()
+            subprocess.run(['rm', 'input_audio'])
+            return jsonify(results)
 
-        return jsonify({'message': 'Audio split successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
