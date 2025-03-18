@@ -14,10 +14,11 @@ app = Flask(__name__)
 def align():
     """Main function of the wrapper"""
     if 'audio' not in request.files or 'lyrics' not in request.files:
-        result = jsonify({'error': 'Audio or lyrics file missing'}), 400
-    audio_file = request.files['audio']
-    lyrics_file = request.files['lyrics']
+        return jsonify({'error': 'Audio or lyrics file missing'}), 400
+    audio_file = request.files.get('audio')
+    lyrics_file = request.files.get('lyrics')
     result = None
+    status_code = 200
 
     temp_dir = tempfile.mkdtemp()
     try:
@@ -44,7 +45,8 @@ def align():
         )
 
         if validation_result.returncode != 0:
-            result = jsonify({f"[ERROR]Corpus validation failed: {validation_result.stderr}"}), 500
+            result = jsonify({f"[ERROR]Corpus validation failed: {validation_result.stderr}"})
+            status_code = 500
         else:
             # Perform alignment
             alignment_result = subprocess.run(
@@ -64,42 +66,48 @@ def align():
                 )
 
                 if retry_result.returncode != 0:
-                    result = jsonify({'error': f"Alignment failed: {retry_result.stderr}"}), 500
-
-                retry_result = alignment_result
+                    result = jsonify({'error': f"Alignment failed: {retry_result.stderr}"})
+                    status_code = 500
+                else:
+                    retry_result = alignment_result
 
             if result is None:
                 textgrid_path = os.path.join(temp_dir, 'aligned', 'aligned.TextGrid')
                 tg = textgrid.TextGrid.fromFile(textgrid_path)
                 words_tier = tg.getFirst('words')
                 if not words_tier:
-                    result = jsonify({"error': The 'words tier is missing from the TextGrid"}), 500
-
-                alignment_data = {
-                    "tier_name": words_tier.name,
-                    "intervals": [
-                        {
-                            "xmin": interval.minTime,
-                            "xmax": interval.maxTime,
-                            "word": interval.mark
-                        } for interval in words_tier.intervals
-                    ]
-                }
-                result = jsonify(alignment_data)
+                    result = jsonify({"error": "The 'words' tier is missing from the TextGrid"})
+                    status_code = 500
+                else:
+                    alignment_data = {
+                        "tier_name": words_tier.name,
+                        "intervals": [
+                            {
+                                "xmin": interval.minTime,
+                                "xmax": interval.maxTime,
+                                "word": interval.mark
+                            }
+                            for interval in words_tier.intervals
+                        ]
+                    }
+                    result = jsonify(alignment_data)
 
     except subprocess.CalledProcessError as e:
-        error_message = f"Subprocess error: {e.stderr}"
-        result = jsonify({'error': error_message}), 500
+        error_message = e.stderr if e.stderr else str(e)
+        result = jsonify({'error': error_message})
+        status_code = 500
     except FileNotFoundError as e:
-        result = jsonify({'error': f"File not found: {e}"}), 404
-    # except textgrid.IOError as e:
-        # return jsonify({'error': f"File not found: {e}"}), 500
+        result = jsonify({'error': f"File not found: {e}"})
+        status_code = 404
     except ValueError as e:
-        result = jsonify({'error': str(e)}), 500
+        result = jsonify({'error': str(e)})
+        status_code = 500
     except Exception as e: # pylint: disable=broad-except
-        result = jsonify({'error': f"An unexpected error occurred: {str(e)}"}), 500
+        result = jsonify({'error': f"An unexpected error occurred: {str(e)}"})
+        status_code = 500
     finally:
-        shutil.rmtree(temp_dir)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    return result, status_code
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
