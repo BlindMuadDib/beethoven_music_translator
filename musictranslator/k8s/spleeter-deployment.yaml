@@ -1,3 +1,4 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,7 +16,7 @@ spec:
         app: spleeter
     spec:
       containers:
-        - name: spleeter-containers
+        - name: spleeter-container
           image: deezer/spleeter:latest
           resources:
             requests:
@@ -24,10 +25,10 @@ spec:
             limits:
               cpu: "2"
               memory: "8Gi"
-          volumeMounds:
-          - name: audio-volume
-            mountPath: /input_output
-        volumes:
+          volumeMounts:
+            - name: audio-volume
+              mountPath: /input_output
+      volumes:
         - name: audio-volume
           persistentVolumeClaim:
             claimName: audio-pvc
