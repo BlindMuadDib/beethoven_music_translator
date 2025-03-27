@@ -1,84 +1,64 @@
 """
-A wrapper for the Spleeter by Deezer source separation library
+Creates a wrapper class then executes the Spleeter `separate`
+command within a Docker container
+
+Args:
+    input_file (str): The path to the input audio file
+    output_dir (str): The path to the output directory
+    stems (str, optional): The Spleeter model to use
+        Defaults to 4stems-16kHz
+
+Raises:
+    FileNotFoundError: If the inpt file or output directory does not exist
+    subprocess.CalledProcessError: If the Spleeter command fails
+    ValueError: If input arguments are invalid
+
+This project would not be possible without Spleeter by Deezer
+Used under the MIT License
+GitHub: https://github.com/deezer/spleeter
 """
-from flask import Flask, request, jsonify
-from kubernetes import client, config, stream
 
-app = Flask(__name__)
+import subprocess
+import os
 
-# Configure Kubernetes client
-try:
-    config.load_incluster_config() # For running inside a pod
-except config.config_exception.ConfigException:
-    config.load_kube_config() # For running locally
+class SpleeterWrapper:
+    """A wrapper class for executing Spleeter commands within a Docker container"""
 
-v1 = client.CoreV1Api()
-batch_v1 = client.BatchV1Api()
-apps_v1 = client.AppsV1Api()
+    def separate(self, input_dir, output_dir, input_file_name):
+        """Main function of the wrapper"""
+        if not input_dir:
+            raise ValueError("Input directory path cannot be None or empty.")
 
-def execute_command_in_pod(pod_name, namespace, command):
-    """Execute a command in a Kubernetes pod"""
-    try:
-        exec_command = ["/bin/sh", "-c", command]
-        resp = stream.stream(
-            v1.connect_get_namespaced_pod_exec,
-            pod_name,
-            namespace,
-            command=exec_command,
-            stderr=True,
-            stdin=False,
-            stdout=True,
-            tty=False,
-        )
-        return resp
-    except client.exceptions.ApiException as e:
-        return f"Error executing command: {e}"
+        if not input_file_name:
+            raise ValueError("Input file name cannot be None or empty.")
 
-def get_spleeter_pod_name(namespace):
-    """Gets the name of the Spleeter pod"""
-    try:
-        pods = v1.list_namespaced_pod(namespace, label_selector="app=spleeter")
-        if pods.items:
-            return pods.items[0].metadata.name
-        return None
-    except client.exceptions.ApiException as e:
-        return f"Error getting pod name: {e}"
+        if not output_dir:
+            raise ValueError("Output directory path cannot be None or empty.")
 
-@app.route('/split', methods=['POST'])
-def split():
-    """Splits an audio file into stems"""
-    if 'audio' not in request.diles:
-        return jsonify({'error': 'No audio file provided'}), 400
+        if not os.path.exists(input_dir):
+            raise FileNotFoundError(f"Input directory not found: {input_dir}")
 
-    audio_file = request.files['audio']
-    input_file_path = "/input_output/input.wav"
-    output_dir = "/input_output"
-    namespace = "default"
+        if not os.path.exists(output_dir):
+            raise FileNotFoundError(f"Output direcory not found: {output_dir}")
 
-    audio_file.save("/input_output/input.wav")
+        input_file_path = os.path.join(input_dir, input_file_name)
+        if not os.path.exists(input_file_path):
+            raise FileNotFoundError(f"Input file not found: {input_file_path}")
 
-    pod_name = get_spleeter_pod_name(namespace)
-    if not pod_name:
-        return jsonify({"error": "Spleeter pod not found."}), 500
-    if "Error" in pod_name:
-        return jsonify({"error": pod_name}), 500
+        input_dir_abs = os.path.abspath(input_dir)
+        output_dir_abs = os.path.abspath(output_dir)
 
-    command = (
-        "spleeter separate -p spleeter:4stems-16kHz "
-        f"-o {output_dir} -f {{instrument}}.wav "
-        f"-i {input_file_path}"
-    )
-    result = execute_command_in_pod(pod_name, namespace, command)
+        command = [
+            "docker",
+            "run",
+            "--rm",
+            "-v", f"{input_dir_abs}:/input",
+            "-v", f"{output_dir_abs}:/output",
+            "researchdeezer/spleeter",
+            "separate",
+            "-i", f"/input/{input_file_name}",
+            "-o", "/output",
+            "-p", "spleeter:4stems-16kHz"
+        ]
 
-    if "Error" in result:
-        return jsonify({"error": result}), 500
-
-    return jsonify({
-        "bass": f"{output_dir}/bass.wav",
-        "drums": f"{output_dir}/drums.wav",
-        "other": f"{output_dir}/other.wav",
-        "vocals": f"{output_dir}/vocals.wav",
-    }), 200
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+        subprocess.run(command, check=True)
