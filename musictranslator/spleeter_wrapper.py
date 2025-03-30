@@ -1,6 +1,6 @@
 """
-Creates a wrapper class then executes the Spleeter `separate`
-command within a Docker container
+Creates a wrapper Flask endpoint
+then executes the Spleeter `separate` command within a Docker container
 
 Args:
     input_file (str): The path to the input audio file
@@ -9,7 +9,7 @@ Args:
         Defaults to 4stems-16kHz
 
 Raises:
-    FileNotFoundError: If the inpt file or output directory does not exist
+    FileNotFoundError: If the input file does not exist
     subprocess.CalledProcessError: If the Spleeter command fails
     ValueError: If input arguments are invalid
 
@@ -20,45 +20,64 @@ GitHub: https://github.com/deezer/spleeter
 
 import subprocess
 import os
+import shutil
+import tempfile
+from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
 
-class SpleeterWrapper:
-    """A wrapper class for executing Spleeter commands within a Docker container"""
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'uploads'
 
-    def separate(self, input_dir, output_dir, input_file_name):
-        """Main function of the wrapper"""
-        if not input_dir:
-            raise ValueError("Input directory path cannot be None or empty.")
+@app.route('/separate', methods=['POST'])
+def separate():
+    """Separates audio file into stems using Spleeter"""
+    if 'audio' not in request.files:
+        return jsonify({'error': 'Audio file missing.'}), 400
 
-        if not input_file_name:
-            raise ValueError("Input file name cannot be None or empty.")
+    audio_file = request.files['audio']
+    if audio_file.filename == '':
+        return jsonify({'error': 'No selected file.'}), 400
 
-        if not output_dir:
-            raise ValueError("Output directory path cannot be None or empty.")
+    if audio_file:
+        filename = secure_filename(audio_file.filename)
+        temp_dir = tempfile.mkdtemp()
+        input_path = os.path.join(temp_dir, filename)
+        output_path = temp_dir
 
-        if not os.path.exists(input_dir):
-            raise FileNotFoundError(f"Input directory not found: {input_dir}")
+        try:
+            audio_file.save(input_path)
 
-        if not os.path.exists(output_dir):
-            raise FileNotFoundError(f"Output direcory not found: {output_dir}")
+            result = subprocess.run(
+                [
+                    "spleeter", "separate",
+                    "-p", "spleeter:4stems-16kHz",
+                    "-o", output_path, "-i", input_path
+                ],
+                capture_output=True,
+                text=True,
+                check=False
+            )
 
-        input_file_path = os.path.join(input_dir, input_file_name)
-        if not os.path.exists(input_file_path):
-            raise FileNotFoundError(f"Input file not found: {input_file_path}")
+            if result.returncode != 0:
+                return jsonify({'error': f'Spleeter error: {result.stderr}'}), 500
 
-        input_dir_abs = os.path.abspath(input_dir)
-        output_dir_abs = os.path.abspath(output_dir)
+            vocals_stem_path = os.path.join(
+                output_path,
+                os.path.splitext(filename)[0],
+                "vocals.wav"
+            )
 
-        command = [
-            "docker",
-            "run",
-            "--rm",
-            "-v", f"{input_dir_abs}:/input",
-            "-v", f"{output_dir_abs}:/output",
-            "researchdeezer/spleeter",
-            "separate",
-            "-i", f"/input/{input_file_name}",
-            "-o", "/output",
-            "-p", "spleeter:4stems-16kHz"
-        ]
+            return jsonify({'vocals_stem_path': vocals_stem_path}), 200
 
-        subprocess.run(command, check=True)
+        except FileNotFoundError as e:
+            return jsonify({'error': f'Spleeter error: {e}'}), 500
+        finally:
+            os.remove(input_path)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return jsonify({'error': 'Invalid file.'}), 400
+
+if __name__ == '__main__':
+    if not os.path.exists('uploads'):
+        os.makedirs('uploads')
+    app.run(debug=True, host='0.0.0.0', port=22227)

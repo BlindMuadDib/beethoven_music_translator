@@ -6,7 +6,7 @@ Allows more accurate lyric alignment and volume/pitch analysis
     # Repository: https://github.com/deezer/spleeter
 import requests
 
-SPLEETER_SERVICE_URL = "http://spleeter-service:24725/split"
+SPLEETER_SERVICE_URL = "http://spleeter-service:22227/split"
 
 def split_audio(input_file):
     """ Temporarily opens the audio for Kubernetes """

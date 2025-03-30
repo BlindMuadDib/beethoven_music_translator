@@ -5,7 +5,7 @@ Repository: https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner
 """
 import requests
 
-MFA_SERVICE_URL = "http://mfa-service:24725/align"
+MFA_SERVICE_URL = "http://mfa_wrapper:24725/align"
 
 def align_lyrics(audio_file, lyrics_file):
     """
@@ -21,16 +21,16 @@ def align_lyrics(audio_file, lyrics_file):
                 'lyrics': lyrics_file_obj
             }
             response = requests.post(MFA_SERVICE_URL, files=files, timeout=10)
-            response.raise_for_status()
 
-            textgrid_content = response.text
-            return textgrid_content
+        if response.status_code == 200:
+            return response.json()
+        return {"error": f"MFA alignment failed: {response.text}"}
 
     except requests.exceptions.RequestException as e:
-        return f"[ERROR] Error communicating with MFA service: {e}"
+        return {"error": "Error communicating with MFA: {e}"}
     except OSError as e:
-        return f"[ERROR] Error opening file: {e}"
+        return {"error": "Error opening file: {e}"}
     except ValueError as e:
-        return f"[ERROR] Error parsing TextGrid: {e}"
+        return {"error": "Error parsing TextGrid: {e}"}
     except Exception as e: # Catch any other errors
-        return f"[ERROR] Unexpected error in mfa_service: {e}"
+        return {"error": "Unexpected error in mfa_service: {e}"}

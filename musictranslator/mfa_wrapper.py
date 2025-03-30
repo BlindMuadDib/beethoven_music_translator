@@ -17,8 +17,6 @@ def align():
         return jsonify({'error': 'Audio or lyrics file missing'}), 400
     audio_file = request.files.get('audio')
     lyrics_file = request.files.get('lyrics')
-    result = None
-    status_code = 200
 
     temp_dir = tempfile.mkdtemp()
     try:
@@ -45,69 +43,59 @@ def align():
         )
 
         if validation_result.returncode != 0:
-            result = jsonify({f"[ERROR]Corpus validation failed: {validation_result.stderr}"})
-            status_code = 500
-        else:
-            # Perform alignment
-            alignment_result = subprocess.run(
+            return jsonify({'error': f"Corpus validation failed: {validation_result.stderr}"}), 500
+
+        # Perform alignment
+        alignment_result = subprocess.run(
+            ["mfa", "align", audio_path, lyrics_path,
+            "english_us_arpa", "english_us_arpa", "aligned"],
+            cwd=temp_dir, capture_output=True, text=True, check=False
+        )
+
+        # If alignment fails on intial attempt, increase beam size
+        # Solves failed alingment for most songs
+        if alignment_result.returncode != 0:
+            retry_result = subprocess.run(
                 ["mfa", "align", audio_path, lyrics_path,
-                "english_us_arpa", "english_us_arpa", "aligned"],
-                cwd=temp_dir, capture_output=True, text=True, check=False
+                "english_us_arpa", "english_us_arpa", "aligned",
+                "--beam", "100", "--retry_beam", "400"],
+                cwd=temp_dir, capture_output=True, text=True, check=True
             )
 
-            # If alignment fails on intial attempt, increase beam size
-            # Solves failed alingment for most songs
-            if alignment_result.returncode != 0:
-                retry_result = subprocess.run(
-                    ["mfa", "align", audio_path, lyrics_path,
-                    "english_us_arpa", "english_us_arpa", "aligned",
-                    "--beam", "100", "--retry_beam", "400"],
-                    cwd=temp_dir, capture_output=True, text=True, check=True
-                )
+            if retry_result.returncode != 0:
+                return jsonify({'error': f"Alignment failed: {retry_result.stderr}"}), 500
+            retry_result = alignment_result
 
-                if retry_result.returncode != 0:
-                    result = jsonify({'error': f"Alignment failed: {retry_result.stderr}"})
-                    status_code = 500
-                else:
-                    retry_result = alignment_result
+        textgrid_path = os.path.join(temp_dir, 'aligned', 'aligned.TextGrid')
+        tg = textgrid.TextGrid.fromFile(textgrid_path)
+        words_tier = tg.getFirst('words')
+        if not words_tier:
+            return jsonify({"error": "The 'words' tier is missing from the TextGrid"}), 500
 
-            if result is None:
-                textgrid_path = os.path.join(temp_dir, 'aligned', 'aligned.TextGrid')
-                tg = textgrid.TextGrid.fromFile(textgrid_path)
-                words_tier = tg.getFirst('words')
-                if not words_tier:
-                    result = jsonify({"error": "The 'words' tier is missing from the TextGrid"})
-                    status_code = 500
-                else:
-                    alignment_data = {
-                        "tier_name": words_tier.name,
-                        "intervals": [
-                            {
-                                "xmin": interval.minTime,
-                                "xmax": interval.maxTime,
-                                "word": interval.mark
-                            }
-                            for interval in words_tier.intervals
-                        ]
-                    }
-                    result = jsonify(alignment_data)
+        alignment_data = {
+            "tier_name": words_tier.name,
+            "intervals": [
+                {
+                    "xmin": interval.minTime,
+                    "xmax": interval.maxTime,
+                    "word": interval.mark
+                }
+                for interval in words_tier.intervals
+            ]
+        }
+        return jsonify(alignment_data), 200
 
     except subprocess.CalledProcessError as e:
         error_message = e.stderr if e.stderr else str(e)
-        result = jsonify({'error': error_message})
-        status_code = 500
+        return jsonify({'error': error_message}), 500
     except FileNotFoundError as e:
-        result = jsonify({'error': f"File not found: {e}"})
-        status_code = 404
+        return jsonify({'error': f"File not found: {e}"}), 404
     except ValueError as e:
-        result = jsonify({'error': str(e)})
-        status_code = 500
+        return jsonify({'error': str(e)}), 500
     except Exception as e: # pylint: disable=broad-except
-        result = jsonify({'error': f"An unexpected error occurred: {str(e)}"})
-        status_code = 500
+        return jsonify({'error': f"An unexpected error occurred: {str(e)}"}), 500
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-    return result, status_code
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+    app.run(debug=True, host='0.0.0.0', port=24725)
