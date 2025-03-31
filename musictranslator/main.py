@@ -15,6 +15,7 @@ from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
+from musictranslator.musicprocessing.map_transcript import create_synchronized_transcript_json
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -35,7 +36,7 @@ def validate_audio(file_path):
             return False
 
         subprocess.run(['ffmpeg', '-i', file_path, '-f', 'null', '-'],
-                       capture_output=True, stderr=subprocess.PIPE, check=True)
+                       capture_output=True, check=True)
         return True
     except subprocess.CalledProcessError as e:
         print(f"Error validating audio: ffmpeg returned non-zero exit code: {e}")
@@ -101,39 +102,39 @@ def translate():
         return jsonify({"error": "Invalid filename"}), 400
 
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio, \
-            tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".txt"
-            ) as temp_lyrics:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file, \
+            tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as temp_lyrics:
 
-            # Save the fiels with secure names
-            audio_file.save(os.path.join(os.path.dirname(temp_audio.name), audio_filename))
-            lyrics_file.save(os.path.join(os.path.dirname(temp_lyrics.name), lyrics_filename))
+            # Save the files with secure names
+            audio_path = temp_audio_file.name
+            lyrics_path = temp_lyrics.name
+            audio_file.save(audio_path)
+            lyrics_file.save(lyrics_path)
 
-            if not validate_audio(temp_audio.name):
+            # Validate the files
+            if not validate_audio(audio_path):
                 return jsonify({'error': 'Invalid audio file.'}), 400
 
-            if not validate_text(temp_lyrics.name):
+            if not validate_text(lyrics_path):
                 return jsonify({'error': 'Invalid lyrics file.'}), 400
 
             # Calls the split_audio function from musictranslator.musicprocessing.separate
-            vocals_stem_path = split_audio(
-                os.path.join(os.path.dirname(temp_audio.name), audio_filename)
-            )
+            vocals_stem_path = split_audio(audio_path)
+
             if isinstance(vocals_stem_path, dict) and "error" in vocals_stem_path:
                 return jsonify(vocals_stem_path), 500
 
             # Call the align_lyrics function from musictranslator.musicprocessing.align
             alignment_result = align_lyrics(
-                vocals_stem_path['vocals_stem_path'],
-                    os.path.join(os.path.dirname(temp_lyrics.name), lyrics_filename)
-                )
+                vocals_stem_path['vocals_stem_path'], lyrics_path)
 
             if isinstance(alignment_result, dict) and "error" in alignment_result:
                 return jsonify(alignment_result), 500
 
-            return jsonify(alignment_result), 200
+            # Map the TextGrid to JSON for front-end simplicity
+            mapped_result = create_synchronized_transcript_json(lyrics_path, alignment_result)
+
+            return jsonify(mapped_result), 200
 
     except Exception as e: # pylint: disable=broad-exception-caught
         print(f"Error during translation: {e}")
@@ -141,8 +142,8 @@ def translate():
 
     finally:
         try:
-            os.remove(os.path.join(os.path.dirname(temp_audio.name), audio_filename))
-            os.remove(os.path.join(os.path.dirname(temp_lyrics.name), lyrics_filename))
+            os.remove(audio_path)
+            os.remove(lyrics_path)
         except NameError:
             pass
         except OSError:

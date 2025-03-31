@@ -70,32 +70,14 @@ def sync_alignment_json_with_transcript_lines(alignment_data, transcript_lines):
         print(f"[ERROR] Error synchronizing alignment dictionary: {e}")
         return []
 
-def create_synchronized_transcript_json(transcript_path, alignment_json_path, output_json_path):
+def create_synchronized_transcript_json(transcript_path, alignment_data):
     """
     Combines all functions to create a synchronized transcript JSON file
     """
     transcript_lines = process_transcript(transcript_path)
-    try:
-        with open(alignment_json_path, 'r', encoding="utf-8") as f:
-            alignment_data = json.load(f)
-    except FileNotFoundError:
-        print(f"[ERROR Alignment JSON file not found {alignment_json_path}]")
-        return False
-    except json.JSONDecodeError:
-        print(f"[ERROR] Invalid JSON in alignment file: {alignment_json_path}")
-        return False
-    except Exception as e: # pylint: disable=broad-except
-        print(f"[ERROR] Error loading alignment JSON: {e}")
-        return False
 
     synchronized_transcript = sync_alignment_json_with_transcript_lines(
         alignment_data, transcript_lines
     )
 
-    try:
-        with open(output_json_path, 'w', encoding="utf-8") as f:
-            json.dump(synchronized_transcript, f, indent=4)
-        return True
-    except Exception as e: # pylint: disable=broad-except
-        print(f"[ERROR] Error creating synchronized transcript JSON: {e}")
-        return False
+    return synchronized_transcript
