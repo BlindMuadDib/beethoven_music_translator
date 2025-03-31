@@ -15,7 +15,7 @@ from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
-from musictranslator.musicprocessing.map_transcript import create_synchronized_transcript_json
+from musictranslator.musicprocessing.map_transcript import process_transcript, sync_alignment_json_with_transcript_lines
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -132,7 +132,11 @@ def translate():
                 return jsonify(alignment_result), 500
 
             # Map the TextGrid to JSON for front-end simplicity
-            mapped_result = create_synchronized_transcript_json(lyrics_path, alignment_result)
+            transcript_lines = process_transcript(lyrics_path)
+            mapped_result = sync_alignment_json_with_transcript_lines(alignment_result, transcript_lines)
+
+            if not mapped_result:
+                return jsonify({"error": "Map Error"}), 500
 
             return jsonify(mapped_result), 200
 

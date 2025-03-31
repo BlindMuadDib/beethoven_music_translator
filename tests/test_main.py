@@ -75,12 +75,12 @@ class TestMain(unittest.TestCase):
 
     @patch('musictranslator.main.split_audio')
     @patch('musictranslator.main.align_lyrics')
-    @patch('musictranslator.main.create_synchronized_transcript_json')
-    def test_translate_success(self, mock_create_synchronized_transcript_json, mock_align_lyrics, mock_split_audio):
+    @patch('musictranslator.main.sync_alignment_json_with_transcript_lines')
+    def test_translate_success(self, mock_sync_alignment, mock_align_lyrics, mock_split_audio):
         """Tests the /translate endpoint with a successful audio and lyrics processing"""
         mock_split_audio.return_value = {'vocals_stem_path': '/path/to/vocals.wav'}
         mock_align_lyrics.return_value = {'tier_name': 'words', 'intervals': []}
-        mock_create_synchronized_transcript_json.return_value = {"mapped": "result"}
+        mock_sync_alignment.return_value = {"mapped": "result"}
 
         with open(self.test_audio_path, 'rb') as audio_file, open(self.test_lyrics_path, 'rb') as lyrics_file:
             response = self.app.post('/translate', data={
@@ -119,12 +119,12 @@ class TestMain(unittest.TestCase):
 
     @patch('musictranslator.main.split_audio')
     @patch('musictranslator.main.align_lyrics')
-    @patch('musictranslator.main.create_synchronized_transcript_json')
-    def test_translate_map_failure(self, mock_create_synchronized_transcript_json, mock_align_lyrics, mock_split_audio):
+    @patch('musictranslator.main.sync_alignment_json_with_transcript_lines')
+    def test_translate_map_failure(self, mock_sync_alignment, mock_align_lyrics, mock_split_audio):
         """Tests the /translate endpoint when mapping the TextGrid fails"""
         mock_split_audio.return_value = {"vocals_stem_path": "/path/to/vocals.wav"}
         mock_align_lyrics.return_value = {"tier_name": "words", "intervals": []}
-        mock_create_synchronized_transcript_json.side_effect = subprocess.CalledProcessError(1, ['some_command'])
+        mock_sync_alignment.side_effect = subprocess.CalledProcessError(1, ['some_command'])
 
         with open(self.test_audio_path, 'rb') as audio_file, open(self.test_lyrics_path, 'rb') as lyrics_file:
             response = self.app.post('/translate', data={

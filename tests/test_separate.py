@@ -32,12 +32,13 @@ class TestSeparate(unittest.TestCase):
     def test_split_audio_request_exception(self, mock_post):
         """
         Test handling of a request exception
-        Verifies that the function returns False
+        Verifies that the function returns the correct error dictionary
         """
-        mock_post.side_effect = requests.exceptions.RequestException("Connection error")
+        exception = requests.exceptions.RequestException("Connection error")
+        mock_post.side_effect = exception
         with patch("builtins.open", mock_open(read_data=b"test_audio_data")):
             result = separate.split_audio("test_audio.wav")
-            self.assertFalse(result)
+            self.assertEqual({'error': f'Spleeter Error: {exception}'}, result)
 
     @patch('requests.post')
     def test_split_audio_http_error(self, mock_post):
@@ -45,10 +46,11 @@ class TestSeparate(unittest.TestCase):
         Test handling of an HTTP error response
         Verifies that the function returns False
         """
-        mock_post.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Internal Server Error")
+        exception = requests.exceptions.HTTPError("500 Internal Server Error")
+        mock_post.side_effect = exception
         with patch("builtins.open", mock_open(read_data=b"test_audio_data")):
             result = separate.split_audio("test_audio.wav")
-            self.assertFalse(result)
+            self.assertEqual({'error': f'Spleeter Error: {exception}'}, result)
 
     @patch('requests.post')
     def test_split_audio_general_exception(self, mock_post):
@@ -56,7 +58,8 @@ class TestSeparate(unittest.TestCase):
         Test handling of a general exception
         Verifies that the function returns False
         """
-        mock_post.side_effect = ValueError("Some value error")
+        exception = ValueError("Some value error")
+        mock_post.side_effect = exception
         with patch("builtins.open", mock_open(read_data=b"test_audio_data")):
             result = separate.split_audio("test_audio.wav")
-            self.assertFalse(result)
+            self.assertEqual({'error': f'Spleeter Error: {exception}'}, result)

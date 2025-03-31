@@ -69,15 +69,3 @@ def sync_alignment_json_with_transcript_lines(alignment_data, transcript_lines):
     except Exception as e: # pylint: disable=broad-except
         print(f"[ERROR] Error synchronizing alignment dictionary: {e}")
         return []
-
-def create_synchronized_transcript_json(transcript_path, alignment_data):
-    """
-    Combines all functions to create a synchronized transcript JSON file
-    """
-    transcript_lines = process_transcript(transcript_path)
-
-    synchronized_transcript = sync_alignment_json_with_transcript_lines(
-        alignment_data, transcript_lines
-    )
-
-    return synchronized_transcript
