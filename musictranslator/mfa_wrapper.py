@@ -1,11 +1,17 @@
 """
-Wrapper for official Docker image for Kubernetes to run specific codes
+Wrapper for  Kubernetes to run specific codes within a Docker image
+
+ARGS:
+    lyrics transcript and Spleeter vocal stem
+
+RETURNS:
+    Alignment data in JSON format
 """
 import subprocess
+import json
 import os
 import tempfile
 import shutil
-import textgrid
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -45,9 +51,11 @@ def align():
         if validation_result.returncode != 0:
             return jsonify({'error': f"Corpus validation failed: {validation_result.stderr}"}), 500
 
-        # Perform alignment
+        # Perform alignment, set output format to JSON
         alignment_result = subprocess.run(
-            ["mfa", "align", audio_path, lyrics_path,
+            ["mfa", "align",
+             "--output_format", "json",
+             audio_path, lyrics_path,
             "english_us_arpa", "english_us_arpa", "aligned"],
             cwd=temp_dir, capture_output=True, text=True, check=False
         )
@@ -55,8 +63,11 @@ def align():
         # If alignment fails on intial attempt, increase beam size
         # Solves failed alingment for most songs
         if alignment_result.returncode != 0:
+            print("Retry alignment ...")
             retry_result = subprocess.run(
-                ["mfa", "align", audio_path, lyrics_path,
+                ["mfa", "align",
+                 "--output_format", "json",
+                 audio_path, lyrics_path,
                 "english_us_arpa", "english_us_arpa", "aligned",
                 "--beam", "100", "--retry_beam", "400"],
                 cwd=temp_dir, capture_output=True, text=True, check=True
@@ -64,26 +75,15 @@ def align():
 
             if retry_result.returncode != 0:
                 return jsonify({'error': f"Alignment failed: {retry_result.stderr}"}), 500
-            retry_result = alignment_result
+            alignment_result = retry_result
 
-        textgrid_path = os.path.join(temp_dir, 'aligned', 'aligned.TextGrid')
-        tg = textgrid.TextGrid.fromFile(textgrid_path)
-        words_tier = tg.getFirst('words')
-        if not words_tier:
-            return jsonify({"error": "The 'words' tier is missing from the TextGrid"}), 500
-
-        alignment_data = {
-            "tier_name": words_tier.name,
-            "intervals": [
-                {
-                    "xmin": interval.minTime,
-                    "xmax": interval.maxTime,
-                    "word": interval.mark
-                }
-                for interval in words_tier.intervals
-            ]
-        }
-        return jsonify(alignment_data), 200
+        # Parses JSON string data into Python dictionary
+        # Then into a JSON response
+        try:
+            alignment_json = json.loads(alignment_result.stdout)
+            return jsonify(alignment_json)
+        except json.JSONDecodeError:
+            return jsonify({'error': "Failed to decode alignment JSON output."}), 500
 
     except subprocess.CalledProcessError as e:
         error_message = e.stderr if e.stderr else str(e)

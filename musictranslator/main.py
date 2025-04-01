@@ -131,9 +131,9 @@ def translate():
             if isinstance(alignment_result, dict) and "error" in alignment_result:
                 return jsonify(alignment_result), 500
 
-            # Map the TextGrid to JSON for front-end simplicity
-            transcript_lines = process_transcript(lyrics_path)
-            mapped_result = sync_alignment_json_with_transcript_lines(alignment_result, transcript_lines)
+            # Map the alignment_result to the lyrics transcript with
+            # musictranslator.musicprocessing.map_transcript
+            mapped_result = sync_alignment_json_with_transcript_lines(alignment_result, process_transcript(lyrics_path))
 
             if not mapped_result:
                 return jsonify({"error": "Map Error"}), 500

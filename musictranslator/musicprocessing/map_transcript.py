@@ -3,69 +3,64 @@ Map the alignment data to the lyrics transcript line-by-line
 """
 
 import json
-import string
+import re
 
-def process_transcript(transcript_path):
-    """Reads and splits the transcript into lines and words"""
+def process_transcript(lyrics_path):
+    """
+    Processes the lyrics file and returns a list of lines,
+    Each containing a list of words"""
     try:
-        with open(transcript_path, "r", encoding="utf-8") as file:
+        with open(lyrics_path, 'r') as file:
             lines = file.readlines()
-        transcript_lines = [line.strip().split() for line in lines if line.strip()]
-        print(f"process_transcript complete: {transcript_lines}")
-        return transcript_lines
-    except Exception as e: # pylint: disable=broad-except
-        print(f"[ERROR] Error processing transcript: {e}")
+            result = []
+            for line in lines:
+                words = [word.lower().strip(".,!?") for word in line.strip().split()]
+                if words:
+                    result.append(words)
+            return result
+    except FileNotFoundError:
+        print(f"Error: Lyrics file not found at {lyrics_path}")
         return []
 
-def sync_alignment_json_with_transcript_lines(alignment_data, transcript_lines):
-    """Synchronize the alignment JSON with the lines of the transcript"""
+def sync_alignment_json_with_transcript_lines(alignment_json, transcript_lines):
+    """
+    Synchronizes alignment data from a TextGrid with transcript lines.
 
-    # Remove punctuation from transcript_lines to properly sync
-    def remove_punctuation(text):
-        translator = str.maketrans('', '', string.punctuation)
-        return text.translate(translator)
 
-    # Create a copy of transcript_lines with punctuation removed
-    transcript_lines_no_punc = [
-        [remove_punctuation(word) for word in line] for line in transcript_lines
-    ]
+    Args:
+        alignment_json (dict): The JSON alignment data
+        transcript_lines (list): List of transcript lines
 
-    try:
-        synchronized_transcript = []
+    Returns:
+        list: List of aligned data in a line-by-line format
+    """
+    alignment_intervals = alignment_json.get('intervals', [])
+    result = []
+    alignment_index = 0
 
-        word_intervals = tuple(
-            {
-                "word": interval["word"],
-                "xmin": interval["xmin"],
-                "xmax": interval["xmax"]
-            }
-            for interval in alignment_data["intervals"] if interval["word"].strip()
-        )
+    for line in transcript_lines:
+        line_result = []
+        for word in line:
+            word = word.lower().strip(".,!?")
+            if not word:
+                continue
 
-        for line in transcript_lines_no_punc:
-            timed_line = []
-            for word in line:
-                word_lower = word.lower()
-                matched_interval = next(
-                    (
-                        (interval["xmin"], interval["xmax"], word)
-                        for interval in word_intervals
-                        if (isinstance(interval, dict) and
-                            "word" in interval and
-                            interval["word"].lower() == word_lower)
-                    ),
-                    None,
-                )
-                if matched_interval:
-                    timed_line.append(matched_interval)
-            synchronized_transcript.append(timed_line)
+            while alignment_index < len(alignment_intervals):
+                interval = alignment_intervals[alignment_index]
+                if interval['word'] == word:
+                    line_result.append({
+                        'word': interval['word'],
+                        'start': interval['xmin'],
+                        'end': interval['xmax']
+                    })
+                    alignment_index += 1
+                    break
+                elif interval['word'] == '':
+                    alignment_index += 1
+                else:
+                    alignment_index += 1
 
-        print(
-            f"The Alignment dictionary has been synchronized to transcript lines:"
-            f"{synchronized_transcript}"
-        )
-        return synchronized_transcript
+        if line_result:
+            result.append(line_result)
 
-    except Exception as e: # pylint: disable=broad-except
-        print(f"[ERROR] Error synchronizing alignment dictionary: {e}")
-        return []
+    return result

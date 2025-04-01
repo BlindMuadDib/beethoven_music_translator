@@ -121,7 +121,7 @@ class TestMain(unittest.TestCase):
     @patch('musictranslator.main.align_lyrics')
     @patch('musictranslator.main.sync_alignment_json_with_transcript_lines')
     def test_translate_map_failure(self, mock_sync_alignment, mock_align_lyrics, mock_split_audio):
-        """Tests the /translate endpoint when mapping the TextGrid fails"""
+        """Tests the /translate endpoint when mapping the JSON fails"""
         mock_split_audio.return_value = {"vocals_stem_path": "/path/to/vocals.wav"}
         mock_align_lyrics.return_value = {"tier_name": "words", "intervals": []}
         mock_sync_alignment.side_effect = subprocess.CalledProcessError(1, ['some_command'])
