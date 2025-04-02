@@ -1,0 +1,28 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mfa-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mfa-wrapper
+  template:
+    metadata:
+      labels:
+        app: mfa-wrapper
+    spec:
+      containers:
+        - name: mfa-wrapper-container
+          image: localhost/mfa-wrapper:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 24725
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"

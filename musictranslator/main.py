@@ -13,9 +13,10 @@ import tempfile
 import magic
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
-from musictranslator.musicprocessing.align import align_lyrics
-from musictranslator.musicprocessing.separate import split_audio
-from musictranslator.musicprocessing.map_transcript import process_transcript, sync_alignment_json_with_transcript_lines
+import musicprocessing
+from musicprocessing.align import align_lyrics
+from musicprocessing.separate import split_audio
+from musicprocessing.map_transcript import process_transcript, sync_alignment_json_with_transcript_lines
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'

@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: translator-service
+spec:
+  selector:
+    app: translator
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 20005
+  type: NodePort

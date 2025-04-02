@@ -1,0 +1,30 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spleeter-deployment
+  labels:
+    app: spleeter-wrapper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spleeter-wrapper
+  template:
+    metadata:
+      labels:
+        app: spleeter-wrapper
+    spec:
+      containers:
+        - name: spleeter-wrapper-container
+          image: localhost/spleeter-wrapper:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 22227
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
