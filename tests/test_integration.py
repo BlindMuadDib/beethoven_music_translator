@@ -41,7 +41,7 @@ class TestIntegration(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.flask_url = "http://localhost:{self.nodeport}/translate"
+        self.flask_url = f"http://localhost:{self.nodeport}/translate"
         self.audio_file = open("data/audio/BloodCalcification-NoMore.wav", 'rb')
         self.lyrics_file = open("data/lyrics/BloodCalcification-NoMore.txt", 'rb')
 
