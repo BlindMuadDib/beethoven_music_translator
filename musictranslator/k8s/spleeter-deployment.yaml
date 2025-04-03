@@ -4,20 +4,23 @@ kind: Deployment
 metadata:
   name: spleeter-deployment
   labels:
-    app: spleeter
+    app: spleeter-wrapper
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: spleeter
+      app: spleeter-wrapper
   template:
     metadata:
       labels:
-        app: spleeter
+        app: spleeter-wrapper
     spec:
       containers:
-        - name: spleeter-container
-          image: deezer/spleeter:latest
+        - name: spleeter-wrapper-container
+          image: localhost/spleeter-wrapper:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 22227
           resources:
             requests:
               cpu: "500m"
@@ -25,10 +28,3 @@ spec:
             limits:
               cpu: "2"
               memory: "8Gi"
-          volumeMounts:
-            - name: audio-volume
-              mountPath: /input_output
-      volumes:
-        - name: audio-volume
-          persistentVolumeClaim:
-            claimName: audio-pvc

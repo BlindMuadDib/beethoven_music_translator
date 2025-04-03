@@ -5,9 +5,9 @@ metadata:
   name: spleeter-service
 spec:
   selector:
-    app: spleeter
+    app: spleeter-wrapper
   ports:
     - protocol: TCP
-      port: 24725
-      targetPort: 24725
+      port: 22227
+      targetPort: 22227
   type: ClusterIP
