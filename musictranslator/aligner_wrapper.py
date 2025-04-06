@@ -1,8 +1,10 @@
 """
-Wrapper for  Kubernetes to run specific codes within a Docker image
+Wrapper for  Kubernetes to run specific codes against the Montreal Forced Aligner Docker image
+MFA repository: https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner
+Licensed under MIT license.
 
 ARGS:
-    lyrics transcript and Spleeter vocal stem
+    lyrics transcript filepath and vocal stem filepath
 
 RETURNS:
     Alignment data in JSON format
@@ -10,26 +12,41 @@ RETURNS:
 import subprocess
 import json
 import os
-import tempfile
 import shutil
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
+CORPUS_DIR = "/home/BlindMuadDib/projects/Music-Translation-for-and-by-Deaf/data/corpus"
+OUTPUT_DIR = "/home/BlindMuadDib/projects/Music-Translation-for-and-by-Deaf/data/aligned"
+
 @app.route('/align', methods=['POST'])
 def align():
     """Main function of the wrapper"""
-    if 'audio' not in request.files or 'lyrics' not in request.files:
-        return jsonify({'error': 'Audio or lyrics file missing'}), 400
-    audio_file = request.files.get('audio')
-    lyrics_file = request.files.get('lyrics')
+    data = request.get_json()
+    if not data or 'vocal_stem_path' not in data or 'lyrics_file_path' not in data:
+        return jsonify({'error': 'vocal_stem_path or lyrics_file_path missing'}), 400
 
-    temp_dir = tempfile.mkdtemp()
+    vocal_stem_path = request.json['vocal_stem_path']
+    lyrics_file_path = request.json['lyrics_file_path']
+
     try:
-        audio_path = os.path.join(temp_dir, audio_file.filename)
-        lyrics_path = os.path.join(temp_dir, lyrics_file.filename)
-        audio_file.save(audio_path)
-        lyrics_file.save(lyrics_path)
+        # Extract filenames and create matching base names
+        vocal_stem_filename = os.path.basename(vocal_stem_path)
+        lyrics_filename = os.path.basename(lyrics_file_path)
+        base_name = os.path.splitext(vocal_stem_filename)[0]
+
+        # Copy files to corpus directory with matching base names
+        corpus_audio_path = os.path.join(CORPUS_DIR, f"{base_name}.wav")
+        corpus_lyrics_path = os.path.join(CORPUS_DIR, f"{base_name}.txt")
+
+        os.makedirs(CORPUS_DIR, exist_ok=True)
+        shutil.copy(vocal_stem_path, corpus_audio_path)
+        shutil.copy(lyrics_file_path, corpus_lyrics_path)
+
+        # Debugging statements
+        print(f"Copied audio to: {corpus_audio_path}")
+        print(f"Copied lyrics to {corpus_lyrics_path}")
 
         # Download the models and dictionaries
         subprocess.run(
@@ -43,7 +60,7 @@ def align():
 
         # Validate the corpus
         validation_result = subprocess.run(
-            ["mfa", "validate", "/data/MFA/corpus",
+            ["mfa", "validate", CORPUS_DIR,
             "english_us_arpa", "english_us_arpa"],
             capture_output=True, text=True, check=True
         )
@@ -55,9 +72,9 @@ def align():
         alignment_result = subprocess.run(
             ["mfa", "align",
              "--output_format", "json",
-             audio_path, lyrics_path,
-            "english_us_arpa", "english_us_arpa", "aligned"],
-            cwd=temp_dir, capture_output=True, text=True, check=False
+             CORPUS_DIR,
+            "english_us_arpa", "english_us_arpa", OUTPUT_DIR],
+            capture_output=True, text=True, check=False
         )
 
         # If alignment fails on intial attempt, increase beam size
@@ -67,10 +84,10 @@ def align():
             retry_result = subprocess.run(
                 ["mfa", "align",
                  "--output_format", "json",
-                 audio_path, lyrics_path,
-                "english_us_arpa", "english_us_arpa", "aligned",
+                 CORPUS_DIR,
+                "english_us_arpa", "english_us_arpa", OUTPUT_DIR,
                 "--beam", "100", "--retry_beam", "400"],
-                cwd=temp_dir, capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True
             )
 
             if retry_result.returncode != 0:
@@ -94,8 +111,6 @@ def align():
         return jsonify({'error': str(e)}), 500
     except Exception as e: # pylint: disable=broad-except
         return jsonify({'error': f"An unexpected error occurred: {str(e)}"}), 500
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=24725)

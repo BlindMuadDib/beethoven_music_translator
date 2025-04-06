@@ -1,27 +1,35 @@
 import os
 import json
-import tempfile
 import subprocess
 import shutil
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 from flask import Flask
-from musictranslator.mfa_wrapper import app, align
+from musictranslator.aligner_wrapper import app, align, CORPUS_DIR, OUTPUT_DIR
 
 class TestMFAWrapper(unittest.TestCase):
 
     def setUp(self):
         self.app = app.test_client()
-        self.temp_dir = tempfile.mkdtemp()
-        self.test_audio_path = os.path.join(self.temp_dir, 'test_audio.wav')
-        self.test_lyrics_path = os.path.join(self.temp_dir, 'test_lyrics.txt')
-        with open(self.test_audio_path, 'wb') as f:
-            f.write(b'test audio data')
-        with open(self.test_lyrics_path, 'w') as f:
-            f.write('test lyric data')
+        self.test_audio_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        self.test_lyrics_file = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
+        self.test_audio_full_path = self.test_audio_file.name
+        self.test_lyrics_full_path = self.test_lyrics_file.name
+
+        self.test_audio_file.close()
+        self.test_lyrics_file.close()
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir)
+        os.remove(self.test_audio_full_path)
+        os.remove(self.test_lyrics_full_path)
+
+        audio_base_name = os.path.splitext(os.path.basename(self.test_audio_full_path))[0]
+
+        if os.path.exists(os.path.join(CORPUS_DIR, f"{audio_base_name}.wav")):
+            os.unlink(os.path.join(CORPUS_DIR, f"{audio_base_name}.wav"))
+        if os.path.exists(os.path.join(CORPUS_DIR, f"{audio_base_name}.txt")):
+            os.unlink(os.path.join(CORPUS_DIR, f"{audio_base_name}.txt"))
 
     @patch('subprocess.run')
     def test_align_success(self, mock_subprocess_run):
@@ -39,12 +47,11 @@ class TestMFAWrapper(unittest.TestCase):
             }).encode('utf-8'))
         ]
 
-            # Mock alignment to JSON format
-        with open(self.test_audio_path, 'rb') as audio_file, open(self.test_lyrics_path, 'rb') as lyrics_file:
-            response = self.app.post('align', data={
-                'audio': (audio_file, 'test_audio.wav'),
-                'lyrics': (lyrics_file, 'test_lyrics.txt')
-            })
+        # Mock alignment to JSON format
+        response = self.app.post('/align', json={
+            'vocal_stem_path': self.test_audio_full_path,
+            'lyrics_file_path': self.test_lyrics_full_path
+        })
 
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.data.decode('utf-8'))
@@ -56,13 +63,18 @@ class TestMFAWrapper(unittest.TestCase):
             ]
         }
         self.assertEqual(data, expected_data)
+        # Check that the files were copied
+        audio_base_name = os.path.splitext(os.path.basename(self.test_audio_full_path))[0]
+
+        self.assertTrue(os.path.exists(os.path.join(CORPUS_DIR, f"{audio_base_name}.wav")))
+        self.assertTrue(os.path.exists(os.path.join(CORPUS_DIR, f"{audio_base_name}.txt")))
 
     def test_align_missing_files(self):
-        response = self.app.post('/align', data={})
+        response = self.app.post('/align', json={})
         print(f"Response data: {response.data!r}")
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.data.decode('utf-8'))
-        self.assertEqual(data, {'error': 'Audio or lyrics file missing'})
+        self.assertEqual(data, {'error': 'vocal_stem_path or lyrics_file_path missing'})
 
     @patch('subprocess.run')
     def test_align_subprocess_error(self, mock_subprocess_run):
@@ -71,19 +83,19 @@ class TestMFAWrapper(unittest.TestCase):
             MagicMock(returncode=0),
             MagicMock(returncode=0),
             MagicMock(returncode=0),
-            subprocess.CalledProcessError(returncode=1, cmd=["mfa", "align", "--output_format", "json", "audio_path", "lyrics_path", "english_us_arpa", "english_us_arpa", "aligned"], stderr="Alignment failed"),
+            subprocess.CalledProcessError(returncode=1, cmd=["mfa", "align", "--output_format", "json", CORPUS_DIR, "english_us_arpa", "english_us_arpa", OUTPUT_DIR], stderr="Alignment failed"),
             subprocess.CalledProcessError(
                 returncode=1,
-                cmd=["mfa", "align", "--output_format", "json", "audio_path", "lyrics_path", "english_us_arpa", "english_us_arpa", "aligned", "--beam", "100", "--retry_beam", "400"],
+                cmd=["mfa", "align", "--output_format", "json", CORPUS_DIR, "english_us_arpa", "english_us_arpa", OUTPUT_DIR, "--beam", "100", "--retry_beam", "400"],
                 stderr="Alignment failed",
             )
         ]
 
-        with open(self.test_audio_path, 'rb') as audio_file, open(self.test_lyrics_path, 'rb') as lyrics_file:
-            response = self.app.post('/align', data={
-                'audio': (audio_file, 'test_audio.wav'),
-                'lyrics': (lyrics_file, 'test_lyrics.txt')
-            })
+        response = self.app.post('/align', json={
+            'vocal_stem_path': self.test_audio_full_path,
+            'lyrics_file_path': self.test_lyrics_full_path
+        })
+
         self.assertEqual(response.status_code, 500)
         data = json.loads(response.data.decode('utf-8'))
         self.assertIn('Alignment failed', data['error'])
@@ -96,16 +108,16 @@ class TestMFAWrapper(unittest.TestCase):
             MagicMock(returncode=0),
             subprocess.CalledProcessError(
                 returncode=1,
-                cmd=["mfa", "validate", "/data/MFA/corpus", "english_us_arpa", "english_us_arpa"],
+                cmd=["mfa", "validate", CORPUS_DIR, "english_us_arpa", "english_us_arpa"],
                 stderr="Validation failed",
             )
         ]
 
-        with open(self.test_audio_path, 'rb') as audio_file, open(self.test_lyrics_path, 'rb') as lyrics_file:
-            response = self.app.post('/align', data={
-                'audio': (audio_file, 'test_audio.wav'),
-                'lyrics': (lyrics_file, 'test_lyrics.txt')
-            })
+        response = self.app.post('/align', json={
+            'vocal_stem_path': self.test_audio_full_path,
+            'lyrics_file_path': self.test_lyrics_full_path
+        })
+
         self.assertEqual(response.status_code, 500)
         data = json.loads(response.data.decode('utf-8'))
         self.assertIn('Validation failed', data['error'])
@@ -127,19 +139,10 @@ class TestMFAWrapper(unittest.TestCase):
             }).encode('utf-8'))
         ]
 
-        with open(self.test_audio_path, 'rb') as audio_file, open(self.test_lyrics_path, 'rb') as lyrics_file:
-            response = self.app.post('/align', data={
-                'audio': (audio_file, 'test_audio.wav'),
-                'lyrics': (lyrics_file, 'test_lyrics.txt')
-            })
-
-
-        print("Subprocess Calls:")
-        for call in mock_subprocess_run.call_args_list:
-            print(call)
-
-        print("Response Status Code:", response.status_code)
-        print("Response Data:", response.data)
+        response = self.app.post('/align', json={
+            'vocal_stem_path': self.test_audio_full_path,
+            'lyrics_file_path': self.test_lyrics_full_path
+        })
 
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.data.decode('utf-8'))
@@ -161,11 +164,10 @@ class TestMFAWrapper(unittest.TestCase):
             MagicMock(returncode=0, stdout=b"invalid json")
         ]
 
-        with open(self.test_audio_path, 'rb') as audio_file, open(self.test_lyrics_path, 'rb') as lyrics_file:
-            response = self.app.post('/align', data={
-                'audio': (audio_file, 'test_audio.wav'),
-                'lyrics': (lyrics_file, 'test_lyrics.txt')
-            })
+        response = self.app.post('/align', json={
+            'vocal_stem_path': self.test_audio_full_path,
+            'lyrics_file_path': self.test_lyrics_full_path
+        })
 
         self.assertEqual(response.status_code, 500)
         data = json.loads(response.data.decode('utf-8'))
