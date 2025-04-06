@@ -15,9 +15,7 @@ This project would not be possible without Demucs
 https://github.com/adefossez/demucs
 """
 
-import io
 import os
-import tempfile
 import shlex
 import demucs.separate
 from flask import Flask, request, jsonify
@@ -39,12 +37,15 @@ def run_demucs(audio_file_path):
         demucs.separate.main(command_list)
 
         separated_streams = {}
-        sources = ["vocals", "drums", "bass", "guitar"]
-        for source in sources:
-            source_file_name = os.path.basename(audio_file_path)
-            source_file_path = os.path.join(OUTPUT_DIR, "htdemucs_6s", os.path.splitext(source_file_name)[0], f"{source}.wav")
-            with open(source_file_path, "rb") as source_file:
-                separated_streams[source] = source_file.read()
+        output_model_dir = os.path.join(
+            OUTPUT_DIR,
+            "htdemucs_6s",
+            os.path.splitext(os.path.basename(audio_file_path))[0],
+        )
+
+        for filename in os.listdir(output_model_dir):
+            if filename.endswith(".wav"):
+                separated_streams[os.path.splitext(filename)[0]] = os.path.join(output_model_dir, filename)
 
         return separated_streams
 

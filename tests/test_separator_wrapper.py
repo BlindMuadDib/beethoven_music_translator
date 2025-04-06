@@ -52,7 +52,10 @@ class TestSeparatorWrapper(unittest.TestCase):
         self.assertIn("drums", result)
         self.assertIn("bass", result)
         self.assertIn("guitar", result)
-        self.assertEqual(result["vocals"], b"vocals data")
+        self.assertEqual(result["vocals"], os.path.join(OUTPUT_DIR, "htdemucs_6s", os.path.splitext(self.input_file_name)[0], "vocals.wav"))
+        self.assertEqual(result["drums"], os.path.join(OUTPUT_DIR, "htdemucs_6s", os.path.splitext(self.input_file_name)[0], "drums.wav"))
+        self.assertEqual(result["bass"], os.path.join(OUTPUT_DIR, "htdemucs_6s", os.path.splitext(self.input_file_name)[0], "bass.wav"))
+        self.assertEqual(result["guitar"], os.path.join(OUTPUT_DIR, "htdemucs_6s", os.path.splitext(self.input_file_name)[0], "guitar.wav"))
 
     @patch('demucs.separate.main')
     def test_demucs_failure(self, mock_demucs_main):
@@ -65,13 +68,11 @@ class TestSeparatorWrapper(unittest.TestCase):
         self.assertEqual(str(context.exception), "An unexpected error occurred: Demucs processing error")
 
     @patch('demucs.separate.main')
-    def test_demucs_os_error(self, mock_demucs_main):
-        mock_demucs_main.side_effect = None
+    def test_demucs_runtime_error(self, mock_demucs_main):
+        mock_demucs_main.side_effect = RuntimeError("Demucs Error")
 
-        with patch('builtins.open', side_effect=OSError("OS Error")) as mock_open:
-            with self.assertRaises(RuntimeError) as context:
-                separator_wrapper.run_demucs(self.input_file_path)
-            self.assertIn("OS Error", str(context.exception))
+        with self.assertRaises(RuntimeError) as context:
+            separator_wrapper.run_demucs(self.input_file_path)
 
     @patch('demucs.separate.main')
     def test_file_open_error(self, mock_demucs_main):
