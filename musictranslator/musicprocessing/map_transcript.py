@@ -51,13 +51,12 @@ def map_transcript(alignment_json_path, lyrics_path):
 
     alignment_intervals = alignment_json.get('tiers', {}).get('words', {}).get('entries', [])
     result = []
-    alignment_index = 0
     interval_index = 0
 
     for line in transcript_lines:
         line_result = []
         for word in line:
-            word = word.lower().strip(".,!?")
+            word = word.lower().strip(".,!?;:")
             if not word:
                 continue
 
@@ -66,7 +65,7 @@ def map_transcript(alignment_json_path, lyrics_path):
 
             while start_index < len(alignment_intervals):
                 interval = alignment_intervals[start_index]
-                interval_word = interval[2].lower().strip(".,!?") if len(interval) > 2 else ''
+                interval_word = interval[2].lower().strip(".,!?;:") if len(interval) > 2 else ''
 
                 if interval_word == word:
                     line_result.append({
@@ -76,12 +75,11 @@ def map_transcript(alignment_json_path, lyrics_path):
                     })
                     interval_index = start_index + 1 # Move the global index forward
                     found_match = True
-                    break
+                    break # break the inner while loop since  a match for the current word was found
                 elif interval_word == '':
                     start_index += 1
                 else:
                     start_index += 1
-                    break
 
             if not found_match:
                 line_result.append({'word': word, 'start': None, 'end': None})
