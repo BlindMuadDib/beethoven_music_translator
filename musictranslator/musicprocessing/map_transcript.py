@@ -1,8 +1,9 @@
 """
-Map the alignment data to the lyrics transcript line-by-line
+Map the alignment data from the .json alignment file to the lyrics transcript line-by-line
 """
 
 import json
+import os
 import re
 
 def process_transcript(lyrics_path):
@@ -22,21 +23,36 @@ def process_transcript(lyrics_path):
         print(f"Error: Lyrics file not found at {lyrics_path}")
         return []
 
-def sync_alignment_json_with_transcript_lines(alignment_json, transcript_lines):
+def map_transcript(alignment_json_path, lyrics_path):
     """
-    Synchronizes alignment data from a TextGrid with transcript lines.
-
+    Maps the alignment data from the .json alignment file
+    to the transcript line-by-line.
 
     Args:
-        alignment_json (dict): The JSON alignment data
-        transcript_lines (list): List of transcript lines
+        alignment_json_path (str): The file path to the .json alignment output from /align
+        lyrics_path (str): The file path to the lyrics transcript
 
     Returns:
-        list: List of aligned data in a line-by-line format
+        list: List of aligned data in a line-by-line format, or None if an error occurs.
     """
-    alignment_intervals = alignment_json.get('intervals', [])
+    try:
+        with open(alignment_json_path, 'r') as f:
+            alignment_json = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: Alignment JSON file not found at {alignment_json_path}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON from {alignment_json_path}")
+        return None
+
+    transcript_lines = process_transcript(lyrics_path)
+    if not transcript_lines:
+        return []
+
+    alignment_intervals = alignment_json.get('tiers', {}).get('words', {}).get('entries', [])
     result = []
     alignment_index = 0
+    interval_index = 0
 
     for line in transcript_lines:
         line_result = []
@@ -45,20 +61,30 @@ def sync_alignment_json_with_transcript_lines(alignment_json, transcript_lines):
             if not word:
                 continue
 
-            while alignment_index < len(alignment_intervals):
-                interval = alignment_intervals[alignment_index]
-                if interval['word'] == word:
+            found_match = False
+            start_index = interval_index # Keep track of where to start searching
+
+            while start_index < len(alignment_intervals):
+                interval = alignment_intervals[start_index]
+                interval_word = interval[2].lower().strip(".,!?") if len(interval) > 2 else ''
+
+                if interval_word == word:
                     line_result.append({
-                        'word': interval['word'],
-                        'start': interval['xmin'],
-                        'end': interval['xmax']
+                        'word': interval[2],
+                        'start': interval[0],
+                        'end': interval[1]
                     })
-                    alignment_index += 1
+                    interval_index = start_index + 1 # Move the global index forward
+                    found_match = True
                     break
-                elif interval['word'] == '':
-                    alignment_index += 1
+                elif interval_word == '':
+                    start_index += 1
                 else:
-                    alignment_index += 1
+                    start_index += 1
+                    break
+
+            if not found_match:
+                line_result.append({'word': word, 'start': None, 'end': None})
 
         if line_result:
             result.append(line_result)

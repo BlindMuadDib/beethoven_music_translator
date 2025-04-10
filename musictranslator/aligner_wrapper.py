@@ -10,15 +10,15 @@ RETURNS:
     Alignment data in JSON format
 """
 import subprocess
-import json
 import os
 import shutil
+import logging
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-CORPUS_DIR = "/home/BlindMuadDib/projects/Music-Translation-for-and-by-Deaf/data/corpus"
-OUTPUT_DIR = "/home/BlindMuadDib/projects/Music-Translation-for-and-by-Deaf/data/aligned"
+CORPUS_DIR = "/app/data/corpus"
+OUTPUT_DIR = "/app/data/aligned"
 
 @app.route('/align', methods=['POST'])
 def align():
@@ -27,19 +27,17 @@ def align():
     if not data or 'vocal_stem_path' not in data or 'lyrics_file_path' not in data:
         return jsonify({'error': 'vocal_stem_path or lyrics_file_path missing'}), 400
 
+    # Extract filenames and create matching base names
     vocal_stem_path = request.json['vocal_stem_path']
     lyrics_file_path = request.json['lyrics_file_path']
+    base_name = os.path.splitext(os.path.basename(vocal_stem_path))[0]
+    # Copy files to corpus directory with matching base names
+    corpus_audio_path = os.path.join(CORPUS_DIR, f"{base_name}.wav")
+    corpus_lyrics_path = os.path.join(CORPUS_DIR, f"{base_name}.txt")
+    json_output_path = os.path.join(OUTPUT_DIR, f"{base_name}.json")
 
     try:
-        # Extract filenames and create matching base names
-        vocal_stem_filename = os.path.basename(vocal_stem_path)
-        lyrics_filename = os.path.basename(lyrics_file_path)
-        base_name = os.path.splitext(vocal_stem_filename)[0]
-
-        # Copy files to corpus directory with matching base names
-        corpus_audio_path = os.path.join(CORPUS_DIR, f"{base_name}.wav")
-        corpus_lyrics_path = os.path.join(CORPUS_DIR, f"{base_name}.txt")
-
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         os.makedirs(CORPUS_DIR, exist_ok=True)
         shutil.copy(vocal_stem_path, corpus_audio_path)
         shutil.copy(lyrics_file_path, corpus_lyrics_path)
@@ -76,7 +74,6 @@ def align():
             "english_us_arpa", "english_us_arpa", OUTPUT_DIR],
             capture_output=True, text=True, check=False
         )
-
         # If alignment fails on intial attempt, increase beam size
         # Solves failed alingment for most songs
         if alignment_result.returncode != 0:
@@ -87,20 +84,13 @@ def align():
                  CORPUS_DIR,
                 "english_us_arpa", "english_us_arpa", OUTPUT_DIR,
                 "--beam", "100", "--retry_beam", "400"],
-                capture_output=True, text=True, check=True
+                    capture_output=True, text=True, check=False
             )
-
             if retry_result.returncode != 0:
                 return jsonify({'error': f"Alignment failed: {retry_result.stderr}"}), 500
             alignment_result = retry_result
-
-        # Parses JSON string data into Python dictionary
-        # Then into a JSON response
-        try:
-            alignment_json = json.loads(alignment_result.stdout)
-            return jsonify(alignment_json)
-        except json.JSONDecodeError:
-            return jsonify({'error': "Failed to decode alignment JSON output."}), 500
+        print(f"JSON export likely successful to {json_output_path}")
+        return jsonify({'alignment_file_path': json_output_path}), 200
 
     except subprocess.CalledProcessError as e:
         error_message = e.stderr if e.stderr else str(e)
@@ -113,4 +103,4 @@ def align():
         return jsonify({'error': f"An unexpected error occurred: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=24725)
+    app.run(debug=False, host='0.0.0.0', port=24725)
