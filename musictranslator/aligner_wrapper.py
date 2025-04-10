@@ -12,13 +12,12 @@ RETURNS:
 import subprocess
 import os
 import shutil
-import logging
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-CORPUS_DIR = "/app/data/corpus"
-OUTPUT_DIR = "/app/data/aligned"
+CORPUS_DIR = "/shared-data/corpus"
+OUTPUT_DIR = "/shared-data/aligned"
 
 @app.route('/align', methods=['POST'])
 def align():

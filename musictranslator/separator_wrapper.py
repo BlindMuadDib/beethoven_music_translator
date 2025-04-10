@@ -23,8 +23,8 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # PVC input and output paths
-INPUT_DIR = ""
-OUTPUT_DIR = ""
+INPUT_DIR = "/shared-data/audio"
+OUTPUT_DIR = "/shared-data/separator_output"
 
 def run_demucs(audio_file_path):
     """Runs the demucs python library on a given audio file."""
