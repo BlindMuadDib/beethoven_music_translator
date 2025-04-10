@@ -20,7 +20,7 @@ class TestIntegration(unittest.TestCase):
 
         # Get NodePort
         result = subprocess.run(['kubectl', 'get', 'service', 'translator-service', '-o' 'jsonpath="{.spec.ports[0].nodePort}"'], capture_output=True, text=True)
-        cls.nodeport = result.stdout.strip()
+        cls.nodeport = int(result.stdout.strip('""'))
         print(f"NodePort: {cls.nodeport}")
 
         # Wait for pods to get ready with a timeout
@@ -59,16 +59,14 @@ class TestIntegration(unittest.TestCase):
             response.raise_for_status() # Raise HTTPError for bad responses
 
             # Load expected result from JSON file
-            with open("tests/expected_results/BloodCalcification-NoMore.json", "r") as f:
+            with open("data/mapped_results/BloodCalcification-NoMore.json", "r") as f:
                 expected_result = json.load(f)
 
             # Parse JSON response
             response_data = response.json()
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("aligned_words", response_data)
-            self.assertIsInstance(response_data["aligned_words"], list)
-            self.assertTrue(len(response_data["aligned_words"]) > 0)
+            self.assertEqual(expected_result, response_data)
 
         except requests.exceptions.RequestException as e:
             self.fail(f"Request failed: {e}")
@@ -76,12 +74,10 @@ class TestIntegration(unittest.TestCase):
         except json.JSONDecodeError as e:
             self.fail(f"Invalid JSON response: {e}")
 
-    @patch('requests.post')
-    def test_translate_mfa_error(self, mock_post):
+    @patch('musictranslator.musicprocessing.align.align_lyrics')
+    def test_translate_mfa_error(self, mock_align_lyrics):
         # Mock mfa error response
-        mock_post.return_value.status_code = 500
-        mock_post.return_value.text = 'MFA Error'
-        mock_post.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError('MFA Error', response=mock_post.return_value)
+        mock_align_lyrics.return_value = {"error": "MFA alignment service unavailable"}
 
         files = {
             'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
@@ -89,14 +85,12 @@ class TestIntegration(unittest.TestCase):
         }
         response = requests.post(self.flask_url, files=files)
         self.assertEqual(response.status_code, 500)
-        self.assertIn('MFA Error', response.text)
+        self.assertIn('MFA alignment service unavailable', response.get_json().get('error', ''))
 
-    @patch('requests.post')
-    def test_translate_spleeter_error(self, mock_post):
+    @patch('musictranslator.musicprocessing.separate.split_audio')
+    def test_translate_demucs_error(self, mock_split_audio):
         # Mock spleeter error
-        mock_post.return_value.status_code = 500
-        mock_post.return_value.text = 'Spleeter Error'
-        mock_post.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError('Spleeter Error', response=mock_post.return_value)
+        mock_split_audio.return_value = {"error": "Demucs split service unavailable"}
 
         files = {
             'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
@@ -104,24 +98,24 @@ class TestIntegration(unittest.TestCase):
         }
         response = requests.post(self.flask_url, files=files)
         self.assertEqual(response.status_code, 500)
-        self.assertIn('Spleeter Error', response.text)
+        self.assertIn('Demucs split service unavailable', response.get_json().get('error', ''))
 
     def test_main_deployment(self):
         # Test the musictranslator.main Flask app deployment and service
-        # Write test
         response = requests.get(f"http://localhost:{self.nodeport}/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn('Music Translator', response.text)
+        self.assertEqual(response.json().get('status'), 'OK')
+        self.assertEqual(response.json().get('message'}, 'Music Translator is running'))
 
-    def test_mfa_deployment(self):
-        # test the Montreal Forced Aligner deployment and service
-        response = requests.get(f"http://localhost:{self.nodeport}/mfa/health")
+    def test_align_deployment(self):
+        # test the align deployment and service
+        response = requests.get(f"http://localhost:{self.nodeport}/align/health")
         self.assertEqual(response.status_code, 200)
         self.assertIn('OK', response.text)
 
-    def test_spleeter_deployment(self):
-        # test the Montreal Forced Aligner deployment and service
-        response = requests.get(f"http://localhost:{self.nodeport}/spleeter/health")
+    def test_separator_deployment(self):
+        # test the separator deployment and service
+        response = requests.get(f"http://localhost:{self.nodeport}/separate/health")
         self.assertEqual(response.status_code, 200)
         self.assertIn('OK', response.text)
 

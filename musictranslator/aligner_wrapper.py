@@ -101,5 +101,9 @@ def align():
     except Exception as e: # pylint: disable=broad-except
         return jsonify({'error': f"An unexpected error occurred: {str(e)}"}), 500
 
+@app.route('/align/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK"}), 200
+
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=24725)
+    app.run(host='0.0.0.0', port=24725)

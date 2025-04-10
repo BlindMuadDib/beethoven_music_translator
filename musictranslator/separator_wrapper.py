@@ -78,7 +78,11 @@ def separate():
     except Exception as e:
         return jsonify({'error': f"An unexpected error occurred: {e}"}), 500
 
+@app.route('/separate/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK"}), 200
+
 if __name__ == '__main__':
     if not os.path.exists('uploads'):
         os.makedirs('uploads')
-    app.run(debug=True, host='0.0.0.0', port=22227)
+    app.run(host='0.0.0.0', port=22227)

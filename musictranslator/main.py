@@ -78,6 +78,10 @@ def validate_text(file_path):
         print(f"Error validating text: {e}")
         return False
 
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK", "message": "Music Translator is running"}), 200
+
 @app.route('/translate', methods=['POST'])
 def translate():
     """
@@ -176,4 +180,4 @@ def translate():
 if __name__ == "__main__":
     if not os.path.exists('uploads'):
         os.makedirs('uploads')
-    app.run(host='0.0.0.0', port=20005, debug=True)
+    app.run(host='0.0.0.0', port=20005)
