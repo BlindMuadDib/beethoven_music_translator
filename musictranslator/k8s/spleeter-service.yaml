@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spleeter-service
+spec:
+  selector:
+    app: spleeter-wrapper
+  ports:
+    - protocol: TCP
+      port: 22227
+      targetPort: 22227
+  type: ClusterIP

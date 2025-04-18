@@ -1,0 +1,41 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demucs-deployment
+  labels:
+    app: demucs-wrapper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demucs-wrapper
+  template:
+    metadata:
+      labels:
+        app: demucs-wrapper
+    spec:
+      containers:
+        - name: demucs-container
+          image: localhost/demucs-wrapper:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 22227
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data/audio
+              subPath: audio
+            - name: shared-data
+              mountPath: /shared-data/separator_output
+              subPath: separator_output
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
