@@ -9,21 +9,10 @@ Secondary functionality will be a video of a person (AI or real) that is lip sin
 Tertiary functions may include representation of other instrumentation, eg. guitars, piano, trumpets, sax, drums, etc. This representation will preference live video recordings, but may be supplemented with graphic representation similar to the follow-along lyric representation from primary function.
 Tertiary functions may also include ASL direct translations, NOT TO BE CONFUSED WITH ASL INTERPRETATION NOR SIGNED EXACT ENGLISH (SEE).
 
-# To download and run the Alpha version of the singalongapp portion of the Music Translator
-* You will need to download and install either podman or docker then pull the docker.io/mmcauliffe/montreal-forced-aligner:latest
-* Create a parent directory (ie. music_translator)
-* Download the singalongapp.py file into the parent directory
-* Create a child directory called /singalongapp/
-* Download the contents of the singalongapp folder into the /singalongapp/ folder on your computer
-* If your computer natively has the python libraries listed in singalongapp/requirements.txt, good for you skip the library downloads
-* Download whichever python libraries from requirements.txt are compatible with your computer. For python version 3.12, all but textgrid will be available
-* If you cannot get all python libraries on your computer, ensure you have python virutalenv library installed
-* Open a CLI and navigate to the parent directory /music_translator/
-* If you need a python virtualenv; execute the command "python3 -m venv venv --system-site-packages" The first venv calls the virtualenv, the second names it. Feel free to change the name to whatever you want
-* This will create your virtualenv. To enable it execute "source venv/bin/activate". If you changed the name, replace "venv" with the name you chose. You can close the virtualenv with "deactivate" and "rm -rf venv" if you want to remove the venv files
-* With your python virualenv active, execute "pip install -r ./singalongapp/requirements.txt"
-* Whether you do or don't need a venv, the next step is the same:
-* Execute the command "python singalongapp.py"
+# To run the Alpha version of the Music Translator
+There is not a front-end yet so current usage is limited.
+Send a POST request to /translate endpoint with a music (.wav) file and corresponding lyrics (.txt) file.
+The response will be in the form of a JSON dictionary, containing the lyrics, line-by-line, with start and end times for each word.
 
 # Music Translator by and for Deaf
 
