@@ -10,13 +10,12 @@ After validating audio and lyrics are valid files
 import os
 import shutil
 import subprocess
-import tempfile
 import magic
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
-from musictranslator.musicprocessing.map_transcript import process_transcript, map_transcript
+from musictranslator.musicprocessing.transcribe import process_transcript, map_transcript
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -80,6 +79,7 @@ def validate_text(file_path):
 
 @app.route('/', methods=['GET'])
 def health_check():
+    """Basic health check endpoint"""
     return jsonify({"status": "OK", "message": "Music Translator is running"}), 200
 
 @app.route('/translate', methods=['POST'])
@@ -109,47 +109,60 @@ def translate():
     if not audio_filename or not lyrics_filename:
         return jsonify({"error": "Invalid filename"}), 400
 
-    temp_audio_dir = None
-    temp_lyrics_file = None
+    audio_file_path = os.path.join('/shared-data/audio', audio_filename)
+    lyrics_path = os.path.join('/shared-data/lyrics', lyrics_filename)
     alignment_json_path = None
 
     try:
-        temp_audio_dir = tempfile.mkdtemp()
-        temp_audio_path = os.path.join(temp_audio_dir, audio_filename)
-        temp_lyrics_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-        lyrics_path = temp_lyrics_file.name
-
-        audio_file.save(temp_audio_path)
+        # Save files to the shared volume
+        audio_file.save(audio_file_path)
         lyrics_file.save(lyrics_path)
 
         # Validate the files
-        if not validate_audio(temp_audio_path):
+        if not validate_audio(audio_file_path):
+            os.remove(audio_file_path)
+            os.remove(lyrics_path)
             return jsonify({'error': 'Invalid audio file.'}), 400
 
         if not validate_text(lyrics_path):
+            os.remove(audio_file_path)
+            os.remove(lyrics_path)
             return jsonify({'error': 'Invalid lyrics file.'}), 400
+        app.logger.info("DEBUG - audio and lyrics saved and validated.")
+        app.logger.info(f"Audio: {audio_file_path}, Lyrics: {lyrics_path}")
 
-        # Calls the split_audio function from musictranslator.musicprocessing.separate
-        separate_result = split_audio(temp_audio_path)
+        # Calls the split_audio function
+        # from musictranslator.musicprocessing.separate
+        separate_result = split_audio(audio_file_path)
+        app.logger.info(f"DEBUG - Separate Result: {separate_result}")
 
         if isinstance(separate_result, dict) and "error" in separate_result:
+            app.logger.info("DEBUG - Demucs error detected")
             return jsonify(separate_result), 500
 
         vocals_stem_path = separate_result.get('vocals')
+        app.logger.info(f"DEBUG - Vocals Stem Path: {vocals_stem_path}")
         if not vocals_stem_path:
+            app.logger.info("DEBUG - Vocals track not found")
             return jsonify({"error": "Error during audio separation: Vocals track not found."}), 500
 
         # Call the align_lyrics function from musictranslator.musicprocessing.align
-        align_result = align_lyrics(
-            vocals_stem_path, lyrics_path)
+        # Only if the audio separation was successful
+        if vocals_stem_path:
+            app.logger.info("DEBUG - Proceeding to align_lyrics")
+            align_result = align_lyrics(vocals_stem_path, lyrics_path)
+            app.logger.info(f"DEBUG - Received align_result: {align_result}")
 
-        if isinstance(align_result, dict) and "error" in align_result:
-            return jsonify(align_result), 500
+            if isinstance(align_result, dict) and "error" in align_result:
+                app.logger.info("DEBUG - MFA error detected")
+                return jsonify(align_result), 500
 
         # Map the alignment_result to the lyrics transcript with
-        # musictranslator.musicprocessing.map_transcript
+        # musictranslator.musicprocessing.transcribe
         alignment_json_path = align_result
-        mapped_result = map_transcript(alignment_json_path, process_transcript(lyrics_path))
+        app.logger.info(f"DEBUG - alignment json path = {alignment_json_path}")
+        mapped_result = map_transcript(alignment_json_path, lyrics_path)
+        app.logger.info(f"Mapped result determined: {mapped_result}")
 
         if not mapped_result:
             return jsonify({"error": "Failed to map alignment to transcript."}), 500
@@ -157,16 +170,16 @@ def translate():
         return jsonify(mapped_result), 200
 
     except Exception as e: # pylint: disable=broad-exception-caught
-        print(f"Error during translation: {e}")
+        app.logger.info(f"Error during translation: {e}")
         return jsonify({"error": "Internal server error."}), 500
 
     finally:
-        if temp_audio_dir:
+        if os.path.exists(audio_file_path):
             try:
-                shutil.rmtree(temp_audio_dir)
+                shutil.rmtree(audio_file_path)
             except OSError:
                 pass
-        if temp_lyrics_file:
+        if os.path.exists(lyrics_path):
             try:
                 os.remove(lyrics_path)
             except OSError:
@@ -180,4 +193,4 @@ def translate():
 if __name__ == "__main__":
     if not os.path.exists('uploads'):
         os.makedirs('uploads')
-    app.run(host='0.0.0.0', port=20005)
+    app.run(debug=True, host='0.0.0.0', port=20005)

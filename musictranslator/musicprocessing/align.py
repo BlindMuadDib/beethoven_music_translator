@@ -5,9 +5,9 @@ Repository: https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner
 """
 import requests
 
-MFA_SERVICE_URL = "http://mfa_wrapper:24725/align"
+MFA_SERVICE_URL = "http://mfa-service:24725/align"
 
-def align_lyrics(audio_file, lyrics_file):
+def align_lyrics(vocals_stem_path, lyrics_path):
     """
     Temporarily open the file with kubernetes cluster for docker image alignment
 
@@ -15,15 +15,17 @@ def align_lyrics(audio_file, lyrics_file):
         Expected to return a TextGrid file of the alignment data
     """
     try:
-        with open(audio_file, 'rb') as audio_file_obj, open(lyrics_file, 'rb') as lyrics_file_obj:
-            files = {
-                'audio': audio_file_obj,
-                'lyrics': lyrics_file_obj
-            }
-            response = requests.post(MFA_SERVICE_URL, files=files, timeout=10)
+        data = {"vocals_stem_path": vocals_stem_path, "lyrics_path": lyrics_path}
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(MFA_SERVICE_URL, json=data, headers=headers, timeout=1200)
+        response.raise_for_status()
 
         if response.status_code == 200:
-            return response.json()
+            alignment_data = response.json()
+            if 'alignment_file_path' in alignment_data:
+                return alignment_data['alignment_file_path']
+            else:
+                return {"error": "MFA successful response missing 'alignment_file_path'"}
         return {"error": f"MFA alignment failed: {response.text}"}
 
     except requests.exceptions.RequestException as e:

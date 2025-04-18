@@ -12,14 +12,14 @@ RUN apt-get update && \
 
 # Upgrade pip and install Flask
 RUN pip install --upgrade pip
-RUN pip install --no-cache-dir Flask python-magic requests
+RUN pip install --no-cache-dir Flask python-magic requests gunicorn
 
 # Copy the application files
-COPY . .
+COPY musictranslator/ /app/musictranslator
 
 # Basic health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:20005 || exit 1
 
 # Command to run the app
-CMD ["python", "-m", "main.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:20005", "musictranslator.main:app", "--workers", "3"]

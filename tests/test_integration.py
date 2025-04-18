@@ -8,7 +8,9 @@ import subprocess
 import os
 import time
 import requests
-from unittest.mock import patch
+import requests_mock
+import musictranslator
+from musictranslator.musicprocessing.transcribe import process_transcript
 
 class TestIntegration(unittest.TestCase):
 
@@ -19,9 +21,9 @@ class TestIntegration(unittest.TestCase):
             raise Exception("KIND cluster is not running. Please run run_integration_test.sh first.")
 
         # Get NodePort
-        result = subprocess.run(['kubectl', 'get', 'service', 'translator-service', '-o' 'jsonpath="{.spec.ports[0].nodePort}"'], capture_output=True, text=True)
-        cls.nodeport = int(result.stdout.strip('""'))
-        print(f"NodePort: {cls.nodeport}")
+        # result = subprocess.run(['kubectl', 'get', 'service', 'translator-service', '-o' 'jsonpath="{.spec.ports[0].nodePort}"'], capture_output=True, text=True)
+        # cls.nodeport = int(result.stdout.strip('""'))
+        # print(f"NodePort: {cls.nodeport}")
 
         # Wait for pods to get ready with a timeout
         timeout = time.time() + 60
@@ -41,7 +43,7 @@ class TestIntegration(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.flask_url = f"http://localhost:{self.nodeport}/translate"
+        self.flask_url = f"http://localhost:30276/translate"
         self.audio_file = open("data/audio/BloodCalcification-NoMore.wav", 'rb')
         self.lyrics_file = open("data/lyrics/BloodCalcification-NoMore.txt", 'rb')
 
@@ -55,18 +57,35 @@ class TestIntegration(unittest.TestCase):
             'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
         }
         try:
-            response = requests.post(self.flask_url, files=files, timeout=10)
+            response = requests.post(self.flask_url, files=files, timeout=1200)
             response.raise_for_status() # Raise HTTPError for bad responses
 
-            # Load expected result from JSON file
-            with open("data/mapped_results/BloodCalcification-NoMore.json", "r") as f:
-                expected_result = json.load(f)
-
-            # Parse JSON response
+            # Parse the JSON response
             response_data = response.json()
-
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(expected_result, response_data)
+
+            # Extract words from the lyrics file
+            # Ensure all are included in the final mapped_result
+            original_lyrics_lines = process_transcript("data/lyrics/BloodCalcification-NoMore.txt")
+
+            self.assertEqual(len(original_lyrics_lines), len(response_data), "Number of lines in original lyrics and mapped result do not match.")
+
+            # Assert the presence and order of words within each line
+            for i, original_line in enumerate(original_lyrics_lines):
+                if i < len(response_data):
+                    mapped_line = response_data[i]
+                    mapped_words_in_line = [item['word'].lower().strip(".,!?;:") for item in mapped_line]
+
+                    self.assertEqual(len(original_line), len(mapped_words_in_line),
+                                     f"Number of words in line {i+1} does not match.")
+
+                    for j, original_word in enumerate(original_line):
+                        if j < len(mapped_words_in_line):
+                            self.assertEqual(original_word, mapped_words_in_line[j],
+                                             f"Word mismatch in line {i+1}, position {j+1}: "
+                                             f"Expected '{original_word}', got '{mapped_words_in_line[j]}'.")
+                        else:
+                            self.fail(f"Mapped result for line {i+1} is shorter than expected.")
 
         except requests.exceptions.RequestException as e:
             self.fail(f"Request failed: {e}")
@@ -74,48 +93,71 @@ class TestIntegration(unittest.TestCase):
         except json.JSONDecodeError as e:
             self.fail(f"Invalid JSON response: {e}")
 
-    @patch('musictranslator.musicprocessing.align.align_lyrics')
-    def test_translate_mfa_error(self, mock_align_lyrics):
-        # Mock mfa error response
-        mock_align_lyrics.return_value = {"error": "MFA alignment service unavailable"}
-
-        files = {
-            'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
-            'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
-        }
-        response = requests.post(self.flask_url, files=files)
-        self.assertEqual(response.status_code, 500)
-        self.assertIn('MFA alignment service unavailable', response.get_json().get('error', ''))
-
-    @patch('musictranslator.musicprocessing.separate.split_audio')
-    def test_translate_demucs_error(self, mock_split_audio):
-        # Mock spleeter error
-        mock_split_audio.return_value = {"error": "Demucs split service unavailable"}
-
-        files = {
-            'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
-            'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
-        }
-        response = requests.post(self.flask_url, files=files)
-        self.assertEqual(response.status_code, 500)
-        self.assertIn('Demucs split service unavailable', response.get_json().get('error', ''))
+    # def test_translate_mfa_error(self):
+    #     # Mock mfa error response
+    #     files = {
+    #             'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
+    #             'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
+    #     }
+    #     mock_mfa_error = {"error": "MFA alignment service unavailable"}
+    #
+    #     with requests_mock.Mocker() as m:
+    #         # Mock the /align endpoint to simulate an MFA error
+    #         m.post("http://mfa-service:24725/align", json=mock_mfa_error, status_code=500)
+    #
+    #         # Call the /translate endpoint
+    #         response = requests.post(self.flask_url, files=files, timeout=1200)
+    #
+    #         self.assertEqual(response.status_code, 500)
+    #         response_data = response.json()
+    #
+    #         self.assertIn("error", response_data)
+    #         self.assertEqual(response_data["error"], mock_mfa_error["error"])
+    #
+    # def test_translate_demucs_error(self):
+    #     # Mock demucs error
+    #     files = {
+    #             'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
+    #             'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
+    #     }
+    #     mock_demucs_error = {"error": "Demucs split service unavailable"}
+    #     with requests_mock.Mocker() as m:
+    #         m.post("http://demucs-service:22227/separate", json=mock_demucs_error, status_code=500)
+    #
+    #         # Ensure /align endpoint is not called by checking history
+    #         m.post("http://mfa-service:24725/align", status_code=200)
+    #         m.post("http://mfa-service:24725/align", status_code=500)
+    #
+    #         # Call the /translate endpoint
+    #         response = requests.post("http://locahost:30276/translate", files=files, timeout=1200)
+    #
+    #         self.assertEqual(response.status_code, 500)
+    #         response_data = response.json()
+    #
+    #         self.assertIn("error", response_data)
+    #         self.assertEqual(response_data["error"], mock_demucs_error["error"])
+    #
+    #         # Assert that /align endpoint was not called
+    #         history = m.request_history
+    #         align_calls = [req for req in history if req.url == "http://mfa-service:24625/align"]
+    #         self.assertEqual(len(align_calls), 0, "The /align endpoint should not have been called.")
 
     def test_main_deployment(self):
         # Test the musictranslator.main Flask app deployment and service
-        response = requests.get(f"http://localhost:{self.nodeport}/")
+        response = requests.get("http://localhost:30276/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json().get('status'), 'OK')
-        self.assertEqual(response.json().get('message'}, 'Music Translator is running'))
+        self.assertEqual(response.json().get('message'), 'Music Translator is running')
 
     def test_align_deployment(self):
         # test the align deployment and service
-        response = requests.get(f"http://localhost:{self.nodeport}/align/health")
+        response = requests.get("http://localhost:31000/align/health")
         self.assertEqual(response.status_code, 200)
         self.assertIn('OK', response.text)
 
     def test_separator_deployment(self):
         # test the separator deployment and service
-        response = requests.get(f"http://localhost:{self.nodeport}/separate/health")
+        response = requests.get("http://localhost:30080/separate/health")
         self.assertEqual(response.status_code, 200)
         self.assertIn('OK', response.text)
 

@@ -59,7 +59,7 @@ def run_demucs(audio_file_path):
 @app.route('/separate', methods=['POST'])
 def separate():
     """Creates a Flask endpoint that separates audio file into stems using Demucs."""
-    print("Separate function called")
+    app.logger.info("Separate function called")
     if 'audio_filename' not in request.json:
         return jsonify({'error': 'Audio filename missing.'}), 400
 
@@ -72,6 +72,7 @@ def separate():
 
     try:
         separated_streams = run_demucs(audio_file_path)
+        app.logger.info(f"Separated streams are in {OUTPUT_DIR}")
         return jsonify(separated_streams)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 500
@@ -85,4 +86,4 @@ def health_check():
 if __name__ == '__main__':
     if not os.path.exists('uploads'):
         os.makedirs('uploads')
-    app.run(host='0.0.0.0', port=22227)
+    app.run(debug=True, host='0.0.0.0', port=22227)
