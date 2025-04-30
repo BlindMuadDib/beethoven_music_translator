@@ -4,11 +4,9 @@ kind: Service
 metadata:
   name: translator-service
 spec:
-  type: NodePort
   ports:
     - protocol: TCP
       port: 20005
       targetPort: 20005
-      nodePort: 30276
   selector:
     app: translator

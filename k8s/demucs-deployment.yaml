@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: demucs-container
-          image: localhost/demucs-wrapper:latest
+          image: docker.io/blindmuaddib/separate-endpoint:1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 22227

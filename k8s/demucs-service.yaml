@@ -10,5 +10,3 @@ spec:
     - protocol: TCP
       port: 22227
       targetPort: 22227
-      nodePort: 30080
-  type: NodePort

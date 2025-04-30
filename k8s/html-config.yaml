@@ -1,0 +1,143 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: html-config
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Music Translator for and by Deaf (Alpha)</title>
+      <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; }
+        a { color: blue; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .form-container { max-width: 500px; margin: 20px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
+        .form-container div { margin-bottom: 15px; text-align: left; }
+        .form-container label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-container input[type="file"],
+        .form-container input[type="text"],
+        .form-container button { width: 95%; padding: 10px; font-size: 1em; }
+        .form-container button { width: 100%; cursor: pointer; background-color: #8A2BE2; color: BlueViolet; border: none; border-radius: 4px; margin-top: 10px;}
+        .form-container button:hover { background-color: #0056b3; }
+        #loading-indicator { display: none; margin: 20px; color: green; font-weight: bold; }
+        #error-message {display: none; margin: 20px; padding: 10px; background-color: #f8d7da; color: #DAA520; border: 1px solid #f5c6cb; border-radius: 4px; }
+        #result-display { display: none; margin: 20px; padding: 15px; background-color: #e2e3e5; border: 1px solid #d6d8db; border-radius: 4px; text-align: left; white-space: pre-wrap; /* Preserve whitespace and wrap */ word-wrap: break-word; font-family: monospace; }
+        .ul-no-style { list-style-type: none; padding: 0; }
+      </style>
+    </head>
+    <body>
+      <h1>Music Translator for and by Deaf (Alpha)</h1>
+      <p>Welcome! Upload a <strong>.wav</strong> audio file, its corresponding <strong>.txt</strong> lyrics , and provide an access code.</p>
+
+      <div class="form-container">
+        <form id="translate-form">
+          <div>
+            <label for="audio">Audio File (.wav):</label>
+            <input type="file" id="audio" name="audio" accept="audio/wav" required>
+          </div>
+          <div>
+            <label for="lyrics">Lyrics File (.txt):</label>
+            <input type="file" id="lyrics" name="lyrics" accept="text/plain" required>
+          </div>
+          <div>
+            <label for="access_code">Access Code:</label>
+            <input type="text" id="access_code" name="access_code" required>
+          </div>
+          <button type="button" id="submit-button">Translate</button>
+        </form>
+      </div>
+
+      <div id="loading-indicator">Processing... Please wait. This may take several minutes.</div>
+      <div id="error-message"></div>
+      <div id="result-display"></div>
+
+      <hr style="margin-top: 30px;">
+      <p>Source code: <a href="https://github.com/BlindMuadDib/Music-Translator-for-and-by-Deaf" target="_blank">GitHub Repository</a></p>
+      <h2>Acknowledgements</h2>
+      <ul class="ul-no-style">
+        <li>Montreal Forced Aligner Tool</li>
+        <li>Demucs</li>
+      </ul>
+
+      <script>
+        const form = document.getElementById('translate-form');
+        const submitButton = document.getElementById('submit-button');
+        const audioInput = document.getElementById('audio');
+        const lyricsInput = document.getElementById('lyrics');
+        const accessCodeInput = document.getElementById('access_code');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const errorMessageDiv = document.getElementById('error-message');
+        const resultDisplayDiv = document.getElementById('result-display');
+
+        submitButton.addEventListener('click', async (event) => {
+          // Basic validation (HTML5 'required' helps, but JS check is good too)
+          if (!form.checkValidity()) {
+            form.reportValidity(); // Show browser validation messages
+            return;
+          }
+
+          // Clear previous state and show loading
+          errorMessageDiv.style.display = 'none';
+          errorMessageDiv.textContent = '';
+          resultDisplayDiv.style.display = 'none';
+          resultDisplayDiv.textContent = '';
+          loadingIndicator.style.display = 'block';
+          submitButton.disabled = true; // Prevent double-clicks
+
+          // Prepare form data
+          const formData = new FormData();
+          formData.append('audio', audioInput.files[0]);
+          formData.append('lyrics', lyricsInput.files[0]);
+          // Access code is needed by the backend's validate_access function
+          const accessCode = accessCodeInput.value;
+
+          // Construct URL with access code as query parameter (matches backend expectation)
+          const url = `/translate?access_code=${encodeURIComponent(accessCode)}`;
+
+          try {
+            // Send request using fetch
+            const response = await fetch(url, {
+              method: 'POST',
+              body: formData, // Send audio/lyrics as multipart/form-data
+            });
+
+            // Check if response status is OK (2xx)
+            if (response.ok) {
+              const resultData = await response.json(); // Parse successful JSON response
+              resultDisplayDiv.textContent = JSON.stringify(resultData, null, 2); // Pretty print JSON
+              resultDisplayDiv.style.display = 'block';
+            } else {
+              // Handle errors (4xx, 5xx)
+              let errorMsg = `Error: ${response.status} ${response.statusText}`;
+              try {
+                // Try to parse error JSON from backend { "error": "message" }
+                const errorData = await response.json();
+                if (errorData && errorData.error) {
+                  errorMsg = errorData.error;
+                }
+              } catch (e) {
+                // If parsing fails, use status text or default message
+                console.warn("Could not parse error response as JSON.");
+              }
+              errorMessageDiv.textContent = errorMsg;
+              errorMessageDiv.style.display = 'block';
+            }
+          } catch (error) {
+            // Handle network errors or other fetch issues
+            console.error("Fetch error:", error);
+            errorMessageDiv.textContent = `Network error or client-side issue: ${error.message}`;
+            errorMessageDiv.style.display = 'block';
+          } finally {
+            // Hide loading indicatory and re-enable button regardless of outcome
+            loadingIndicator.style.display = 'none';
+            submitButton.disabled = false;
+          }
+        });
+      </script>
+    </body>
+    </html>
+

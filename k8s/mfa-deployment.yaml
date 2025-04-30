@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: mfa-wrapper-container
-          image: localhost/mfa-wrapper:latest
+          image: docker.io/blindmuaddib/align-endpoint:1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 24725

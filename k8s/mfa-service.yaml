@@ -10,5 +10,3 @@ spec:
     - protocol: TCP
       port: 24725
       targetPort: 24725
-      nodePort: 31000
-  type: NodePort
