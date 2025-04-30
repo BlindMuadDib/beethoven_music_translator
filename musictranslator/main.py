@@ -10,6 +10,7 @@ After validating audio and lyrics are valid files
 import os
 import shutil
 import subprocess
+import secrets
 import magic
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
@@ -19,9 +20,22 @@ from musictranslator.musicprocessing.transcribe import process_transcript, map_t
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
+# Store valid access codes
+VALID_ACCESS_CODES = set([''])
 
 # Determine the project root directory
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def validate_access():
+    """Validate access based on an access code"""
+    access_code = request.args.get('access_code') or request.headers.get('X-Access-Code')
+    app.logger.info(f"DEBUG - Attempting access with code: '{access_code}'")
+    app.logger.info(f"DEBUG - Valid access codes: {VALID_ACCESS_CODES}")
+    if access_code and access_code in VALID_ACCESS_CODES:
+        app.logger.info("DEBUG - Access granted.")
+        return True
+    app.logger.info("DEBUG - Access denied.")
+    return False
 
 def validate_audio(file_path):
     """
@@ -93,27 +107,35 @@ def translate():
     Returns:
         Alignment json of song and lyrics or error
     """
-    if 'audio' not in request.files:
-        return jsonify({"error": "Missing audio file."}), 400
-
-    if 'lyrics' not in request.files:
-        return jsonify({"error": "Missing lyrics file."}), 400
-
-    audio_file = request.files['audio']
-    lyrics_file = request.files['lyrics']
-
-    # Sanitize filenames
-    audio_filename = secure_filename(audio_file.filename)
-    lyrics_filename = secure_filename(lyrics_file.filename)
-
-    if not audio_filename or not lyrics_filename:
-        return jsonify({"error": "Invalid filename"}), 400
-
-    audio_file_path = os.path.join('/shared-data/audio', audio_filename)
-    lyrics_path = os.path.join('/shared-data/lyrics', lyrics_filename)
+    audio_file_path = None
+    lyrics_path = None
     alignment_json_path = None
+    access_granted = False
 
     try:
+        if not validate_access():
+            return jsonify({"error": "Access Denied. Please provide a valid access code."}), 401
+        access_granted = True
+
+        if 'audio' not in request.files:
+            return jsonify({"error": "Missing audio file."}), 400
+
+        if 'lyrics' not in request.files:
+            return jsonify({"error": "Missing lyrics file."}), 400
+
+        audio_file = request.files['audio']
+        lyrics_file = request.files['lyrics']
+
+        # Sanitize filenames
+        audio_filename = secure_filename(audio_file.filename)
+        lyrics_filename = secure_filename(lyrics_file.filename)
+
+        if not audio_filename or not lyrics_filename:
+            return jsonify({"error": "Invalid filename"}), 400
+
+        audio_file_path = os.path.join('/shared-data/audio', audio_filename)
+        lyrics_path = os.path.join('/shared-data/lyrics', lyrics_filename)
+
         # Save files to the shared volume
         audio_file.save(audio_file_path)
         lyrics_file.save(lyrics_path)
@@ -174,23 +196,24 @@ def translate():
         return jsonify({"error": "Internal server error."}), 500
 
     finally:
-        if os.path.exists(audio_file_path):
-            try:
-                shutil.rmtree(audio_file_path)
-            except OSError:
-                pass
-        if os.path.exists(lyrics_path):
-            try:
-                os.remove(lyrics_path)
-            except OSError:
-                pass
-        if alignment_json_path and os.path.exists(alignment_json_path):
-            try:
-                os.remove(alignment_json_path)
-            except OSError:
-                pass
+        if access_granted:
+            if audio_file and os.path.exists(audio_file_path):
+                try:
+                    shutil.rmtree(audio_file_path)
+                except OSError:
+                    pass
+            if lyrics_path and os.path.exists(lyrics_path):
+                try:
+                    os.remove(lyrics_path)
+                except OSError:
+                    pass
+            if alignment_json_path and os.path.exists(alignment_json_path):
+                try:
+                    os.remove(alignment_json_path)
+                except OSError:
+                    pass
 
 if __name__ == "__main__":
     if not os.path.exists('uploads'):
         os.makedirs('uploads')
-    app.run(debug=True, host='0.0.0.0', port=20005)
+    app.run(host='0.0.0.0', port=20005)
