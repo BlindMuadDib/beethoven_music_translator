@@ -20,16 +20,12 @@ spec:
           image: nginx:latest
           ports:
             - containerPort: 80
-            - containerPort: 443
           volumeMounts:
             - name: html-volume
               mountPath: /usr/share/nginx/html
             - name: nginx-config-volume
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
-            - name: tls-volume
-              mountPath: /etc/nginx/ssl
-              readOnly: true
       volumes:
         - name: html-volume
           configMap:
@@ -37,6 +33,3 @@ spec:
         - name: nginx-config-volume
           configMap:
             name: nginx-config
-        - name: tls-volume
-          secret:
-            secretName: tls-cert

@@ -3,6 +3,11 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: musictranslator-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-body-size: "60m"
 spec:
   rules:
   - host: musictranslator.org
@@ -15,6 +20,13 @@ spec:
             name: nginx-service
             port:
               number: 80
+      # - path: /translate
+      #   pathType: Prefix
+      #   backend:
+      #     service:
+      #       name: translator-service
+      #       port:
+      #         number: 20005
   - host: www.musictranslator.org
     http:
       paths:
@@ -25,6 +37,13 @@ spec:
             name: nginx-service
             port:
               number: 80
+      # - path: /translate
+      #   pathType: Prefix
+      #   backend:
+      #     service:
+      #       name: translator-service
+      #       port:
+      #         number: 20005
   ingressClassName: nginx
   tls:
   - hosts:

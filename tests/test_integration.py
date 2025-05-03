@@ -35,6 +35,10 @@ class TestIntegration(unittest.TestCase):
         else:
             raise Exception("Timeout waiting for pods to become ready")
 
+        cls.base_url = "https://localhost"
+        cls.host_header = {"Host": "musictranslator.org"}
+        cls.ssl_verify = False
+
         print("SetUpClass completed")
 
     @classmethod
@@ -43,7 +47,6 @@ class TestIntegration(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.flask_url = f"http://localhost:30276/translate"
         self.audio_file = open("data/audio/BloodCalcification-NoMore.wav", 'rb')
         self.lyrics_file = open("data/lyrics/BloodCalcification-NoMore.txt", 'rb')
 
@@ -52,12 +55,19 @@ class TestIntegration(unittest.TestCase):
         self.lyrics_file.close()
 
     def test_translate_success(self):
+        target_url = f"{self.base_url}/translate?access_code=''"
         files = {
             'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
             'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
         }
         try:
-            response = requests.post(self.flask_url, files=files, timeout=1200)
+            response = requests.post(
+                target_url,
+                files=files,
+                headers=self.host_header,
+                timeout=1200,
+                verify=self.ssl_verify
+            )
             response.raise_for_status() # Raise HTTPError for bad responses
 
             # Parse the JSON response
@@ -92,6 +102,25 @@ class TestIntegration(unittest.TestCase):
 
         except json.JSONDecodeError as e:
             self.fail(f"Invalid JSON response: {e}")
+
+    def test_translate_without_access_code(self):
+        """Test no access granted to those without code"""
+        target_url = f"{self.base_url}/translate"
+        files = {
+            'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
+            'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
+        }
+        response = requests.post(
+            target_url,
+            files=files,
+            headers=self.host_header,
+            timeout=1200,
+            verify=self.ssl_verify
+        )
+        self.assertEqual(response.status_code, 401)
+        response_data = response.json()
+        self.assertIn("error", response_data)
+        self.assertEqual(response_data["error"], "Access Denied. Please provide a valid access code.")
 
     # def test_translate_mfa_error(self):
     #     # Mock mfa error response
@@ -144,20 +173,32 @@ class TestIntegration(unittest.TestCase):
 
     def test_main_deployment(self):
         # Test the musictranslator.main Flask app deployment and service
-        response = requests.get("http://localhost:30276/")
+        response = requests.get(
+            f"{self.base_url}/translate/health",
+            headers=self.host_header,
+            verify=self.ssl_verify
+            )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json().get('status'), 'OK')
         self.assertEqual(response.json().get('message'), 'Music Translator is running')
 
     def test_align_deployment(self):
         # test the align deployment and service
-        response = requests.get("http://localhost:31000/align/health")
+        response = requests.get(
+            f"{self.base_url}/align/health",
+            headers=self.host_header,
+            verify=self.ssl_verify
+            )
         self.assertEqual(response.status_code, 200)
         self.assertIn('OK', response.text)
 
     def test_separator_deployment(self):
         # test the separator deployment and service
-        response = requests.get("http://localhost:30080/separate/health")
+        response = requests.get(
+            f"{self.base_url}/separate/health",
+            headers=self.host_header,
+            verify=self.ssl_verify
+            )
         self.assertEqual(response.status_code, 200)
         self.assertIn('OK', response.text)
 
