@@ -30,11 +30,11 @@ class TestAlignLyrics(unittest.TestCase):
     def test_align_success(self, mock_post):
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"alignment": "data"}
+        mock_response.json.return_value = {"data": "alignment_file_path"}
         mock_post.return_value = mock_response
 
         result = align_lyrics("audio.wav", "lyrics.txt")
-        self.assertEqual(result, {"alignment": "data"})
+        self.assertEqual(result, {"data": "alignment_file_path"})
         mock_post.assert_called_once_with(MFA_SERVICE_URL, files={'audio': unittest.mock.ANY, 'lyrics': unittest.mock.ANY}, timeout=10)
 
     @patch('musictranslator.musicprocessing.align.requests.post')
@@ -57,7 +57,7 @@ class TestAlignLyrics(unittest.TestCase):
         self.assertEqual(result, {"error": "Error communicating with MFA: {e}"})
 
     def test_align_lyrics_file_error(self):
-        result = align_lyrics("nonexistent_audio.wav", "nonexistent_lyrics.txt")
+        result = align_lyrics("nonexistent_audio.mp3", "nonexistent_lyrics.txt")
         self.assertTrue("Error opening file" in result["error"])
 
     @patch('musictranslator.musicprocessing.align.requests.post')

@@ -19,6 +19,11 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 20005
+          env:
+            - name: REDIS_HOST
+              value: "redis-service"
+            - name: REDIS_PORT
+              value: "6379"
           resources:
             requests:
               cpu: "500m"

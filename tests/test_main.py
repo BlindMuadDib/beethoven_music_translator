@@ -184,3 +184,19 @@ class TestMain(unittest.TestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(json.loads(response.data), {"error": "Failed to map alignment to transcript."})
+
+    def test_redis_error(self, mock_redis_server):
+        """Mock an error by redis and make sure a valid error is returned"""
+        raise NotImplementedError
+
+    def test_get_results_success(self, mock_results):
+        """
+        Mock a valid job initialization
+        Save the job_id returned from the redis server as variable
+        Mock a successful GET request to the /request/<job_id> endpoint
+        """
+        raise NotImplementedError
+
+    def test_get_results_nonexistent_job(self, mock_results):
+        """Mock a 404 error with json response for jobs that don't exist"""
+        raise NotImplementedError

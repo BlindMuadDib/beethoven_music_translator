@@ -16,7 +16,7 @@ from podman import PodmanClient
 def mfa_flask_container(request):
     try:
         client = PodmanClient(base_url="unix:///run/user/1000/podman/podman.sock")
-        image_name = "localhost/test-align-endpoint:latest"
+        image_name = "localhost/blindmuaddib/align-endpoint:latest"
         container_name = "align-test-container"
         port = 24725
 

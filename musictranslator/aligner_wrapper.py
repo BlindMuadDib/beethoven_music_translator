@@ -47,26 +47,6 @@ def align():
         app.logger.info(f"Copied audio to: {corpus_audio_path}")
         app.logger.info(f"Copied lyrics to {corpus_lyrics_path}")
 
-        # Download the models and dictionaries
-        subprocess.run(
-            ["mfa", "model", "download", "acoustic", "english_us_arpa"],
-            check=True
-        )
-        subprocess.run(
-            ["mfa", "model", "download", "dictionary", "english_us_arpa"],
-        check=True
-        )
-
-        # Validate the corpus
-        validation_result = subprocess.run(
-            ["mfa", "validate", CORPUS_DIR,
-            "english_us_arpa", "english_us_arpa"],
-            capture_output=True, text=True, check=True
-        )
-
-        if validation_result.returncode != 0:
-            return jsonify({'error': f"Corpus validation failed: {validation_result.stderr}"}), 500
-
         # Perform alignment, set output format to JSON
         alignment_result = subprocess.run(
             ["mfa", "align",
@@ -108,4 +88,4 @@ def health_check():
     return jsonify({"status": "OK"}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=24725)
+    app.run(host='0.0.0.0', port=24725)

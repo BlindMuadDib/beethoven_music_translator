@@ -72,7 +72,77 @@ data:
         const loadingIndicator = document.getElementById('loading-indicator');
         const errorMessageDiv = document.getElementById('error-message');
         const resultDisplayDiv = document.getElementById('result-display');
+        let pollingIntervalId = null; // Variable to hold interval ID
 
+        // --- Polling Function ---
+        function pollJobStatus(job_id, accessCode) {
+          loadingIndicator.textContent = 'Processing... Status: Checking'; // Initial polling message
+
+          // Clear previous interval if any
+          if (pollingIntervalId) {
+            clearInterval(pollingIntervalId);
+          }
+
+          pollingIntervalId = setInterval(async () => {
+            try {
+              const resultsUrl = `/results/${job_id}`; // Construct the results URL
+
+              const response = await fetch(resultsUrl, {method: 'GET'});
+
+              // Check fr non-JSON responses or network errors first
+              if (!response.ok) {
+                let errorMsg = `Error fetching results: ${response.status} ${response.statusText}`;
+                try {
+                  const errorData = await response.json();
+                  if(errorData && (errorData.message || errorData.error)) {
+                    errorMsg = errorData.message || errorData.error;
+                  }
+                } catch(e) { /* Ignore JSON parse error if body isn't JSON */ }
+
+                throw new Error(errorMsg); // Throw to be caught below
+              }
+
+              const data = await response.json();
+              console.log("Polling status:", data); // Debugging
+
+              loadingIndicator.textContent = `Processing... Status: ${data.status}`;
+
+              if (data.status === 'finished') {
+                clearInterval(pollingIntervalId); // Stop polling
+                pollingIntervalId = null;
+                loadingIndicator.style.display = 'none'; // Hide loading
+                // Display result (assuming data.result is the JSON oject)
+                resultDisplayDiv.textContent = JSON.stringify(data.result, null, 2);
+                resultDisplayDiv.style.display = 'block';
+                submitButton.disabled = false;
+              } else if (data.status === 'failed') {
+                clearInterval(pollingIntervalId); // Stop polling
+                pollingIntervalId = null;
+                pollingIndicator.style.display = 'none'; // Hide loading
+                errorMessageDiv.textContent = data.message || 'Translation job failed. Please check logs or try again.';
+                errorMessageDiv.style.display = 'block';
+                submitButton.disabled = false; // Re-enable button
+              } else if (data.status === 'error') { // Handle specific error status from results endpoint
+                clearInterval(pollingIntervalId);
+                pollingIntervalId = null;
+                loadingIndicator.style.display = 'none';
+                errorMessageDiv.textContent = data.message || 'Error retrieving job status.';
+                errorMessageDiv.style.display = 'block';
+                submitButton.disabled = false;
+              }
+              // else status is 'queued', 'started', 'deferred' -> continue polling
+            } catch (error) {
+              console.error('Error polling job status:', error);
+              clearInterval(pollingIntervalId); // Stop polling on error
+              pollingIntervalId = null;
+              errorMessageDiv.textContent = `Error checking translation status: ${error.message}`;
+              errorMessageDiv.style.display = 'block';
+              submitButton.disabled = false; // Re-enable button
+            }
+          }, 5000); // Poll every 5 seconds (adjust as needed)
+        }
+
+        // --- Submit Button Event Listener ---
         submitButton.addEventListener('click', async (event) => {
           // Basic validation (HTML5 'required' helps, but JS check is good too)
           if (!form.checkValidity()) {
@@ -80,11 +150,18 @@ data:
             return;
           }
 
+          // Stop any previous polling
+          if (pollingIntervalId) {
+            clearInterval(pollingIntervalId);
+            pollingIntervalId = null;
+          }
+
           // Clear previous state and show loading
           errorMessageDiv.style.display = 'none';
           errorMessageDiv.textContent = '';
           resultDisplayDiv.style.display = 'none';
           resultDisplayDiv.textContent = '';
+          loadingIndicator.textContent = 'Uploading and submitting job ...';
           loadingIndicator.style.display = 'block';
           submitButton.disabled = true; // Prevent double-clicks
 
@@ -105,11 +182,17 @@ data:
               body: formData, // Send audio/lyrics as multipart/form-data
             });
 
-            // Check if response status is OK (2xx)
-            if (response.ok) {
+            // Check for Accepted status (202)
+            if (response.status === 202) {
               const resultData = await response.json(); // Parse successful JSON response
-              resultDisplayDiv.textContent = JSON.stringify(resultData, null, 2); // Pretty print JSON
-              resultDisplayDiv.style.display = 'block';
+              if (resultData.job_id) {
+                // Job submitted successfully, start polling
+                loadingIndicator.textContent = 'Job submitted! Processing ...';
+                pollJobStatus(resultData.job_id, accessCode); // Start polling
+                // Keep button disabled while polling
+              } else {
+                throw new Error("Submission accepted, but no Job ID received.");
+              }
             } else {
               // Handle errors (4xx, 5xx)
               let errorMsg = `Error: ${response.status} ${response.statusText}`;
@@ -120,20 +203,16 @@ data:
                   errorMsg = errorData.error;
                 }
               } catch (e) {
-                // If parsing fails, use status text or default message
                 console.warn("Could not parse error response as JSON.");
+                throw new Error(errorMsg); // Throw to be caught below
               }
-              errorMessageDiv.textContent = errorMsg;
-              errorMessageDiv.style.display = 'block';
             }
           } catch (error) {
             // Handle network errors or other fetch issues
             console.error("Fetch error:", error);
-            errorMessageDiv.textContent = `Network error or client-side issue: ${error.message}`;
+            errorMessageDiv.textContent = `Submission failed: ${error.message}`;
             errorMessageDiv.style.display = 'block';
-          } finally {
-            // Hide loading indicatory and re-enable button regardless of outcome
-            loadingIndicator.style.display = 'none';
+            loadingIndicator.style.display = 'none'; // Hide loading on submission error
             submitButton.disabled = false;
           }
         });
