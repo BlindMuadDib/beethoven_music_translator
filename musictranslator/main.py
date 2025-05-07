@@ -15,7 +15,7 @@ import uuid
 import magic
 import redis
 import rq
-from rq import Queue
+from rq import Queue, get_current_job
 from rq.job import Job
 from flask import Flask, request, jsonify, g
 from werkzeug.utils import secure_filename
@@ -24,7 +24,6 @@ from musictranslator.musicprocessing.separate import split_audio
 from musictranslator.musicprocessing.transcribe import map_transcript
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
 
 # Store valid access codes
 
@@ -103,6 +102,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
     """
     alignment_json_path = None
     vocals_stem_path = None
+    job = get_current_job()
 
     logger = logging.getLogger("rq.worker")
     logger.setLevel(logging.INFO)
@@ -116,6 +116,9 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
 
         # --- 1. Separate Audio ---
         logger.info("Step 1: Splitting audio ...")
+        if job:
+            job.meta['progress_stage'] = 'separating_audio'
+            job.save_meta()
         separate_result = split_audio(unique_audio_path)
         logger.info("DEBUG - Separate Result: %s", separate_result)
 
@@ -124,7 +127,9 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
 
         # Store paths for later use and cleanup
         vocals_stem_path = separate_result.get('vocals')
-        separate_path = os.path.dirname(separate_result)
+        separate_path = None
+        if vocals_stem_path and isinstance(vocals_stem_path, str):
+            separate_path = os.path.dirname(vocals_stem_path)
 
         if not vocals_stem_path or not os.path.exists(vocals_stem_path):
             logger.error("Vocals track not found after separation.")
@@ -133,6 +138,9 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
 
         # --- 2. Align Lyrics ---
         logger.info("Step 2: Aligning lyrics ...")
+        if job:
+            job.meta['progress_stage'] = 'aligning_lyrics'
+            job.save_meta()
         align_result = align_lyrics(vocals_stem_path, unique_lyrics_path)
         logger.info("DEBUG - Received align_result: %s", align_result)
 
@@ -148,6 +156,9 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
 
         # --- 3. Map Transcript ---
         logger.info("Step 3: Mapping transcript ...")
+        if job:
+            job.meta['progress_stage'] = 'mapping_transcript'
+            job.save_meta()
         mapped_result = map_transcript(alignment_json_path, unique_lyrics_path)
         logger.info("Mapped result determined: %s", mapped_result)
 
@@ -156,13 +167,17 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
             raise Exception("Failed to map alignment to transcript.")
 
         logger.info("Background task completed successfully.")
-        redis_conn = get_redis_connection()
-        cleanup_queue = Queue('cleanup', connection=redis_conn)
-        cleanup_queue.enqueue('musictranslator.main.cleanup_files',
-                              audio_path=unique_audio_path,
-                              lyrics_path=unique_lyrics_path,
-                              alignment_path=alignment_json_path,
-                              separate_path=separate_path)
+        if job and job.connection:
+            cleanup_queue = Queue('cleanup_files', connection=job.connection)
+            cleanup_queue.enqueue(
+                'musictranslator.main.cleanup_files',
+                audio_path=unique_audio_path,
+                lyrics_path=unique_lyrics_path,
+                alignment_path=alignment_json_path,
+                separate_path=separate_path
+            )
+        else:
+            logger.error("Could not get job or Redis connection in background task for cleanup")
         return mapped_result
 
     except Exception as e:
@@ -269,6 +284,7 @@ def translate():
     Returns:
         Alignment json of song and lyrics or error
     """
+    app.logger.info("DEBUG - Received translation request. Attempting Redis connection ... ")
     # --- Get Queue (which implicitly checks/gets Redis connection) ---
     translation_queue = get_translation_queue()
     if not translation_queue:
@@ -332,17 +348,17 @@ def translate():
                 'musictranslator.main.background_translation_task',
                 args=(unique_audio_path, unique_lyrics_path),
                 job_id=job_id,
-                job_timeout=1200
+                timeout=1200
             )
             app.logger.info("Enqueued job %s", job.id)
 
             # --- Return Job ID to CLient ---
             return jsonify({"job_id": job.id}), 202
         except Exception as e:
-            app.logger.info("Error during job enqueue: %s", e)
+            app.logger.error("Error during job enqueue (type %s): %s", type(e).__name__, e, exc_info=True)
             return jsonify({"error": "Internal server error processing request"}), 503
     except Exception as e:
-        app.logger.info("Error during file validation or saving: %s", e)
+        app.logger.error("Error during file validation or saving: %s", e)
         if unique_audio_path and os.path.exists(unique_audio_path):
             os.remove(unique_audio_path)
         if unique_lyrics_path and os.path.exists(unique_lyrics_path):
@@ -355,39 +371,37 @@ def get_results(job_id):
     app.logger.info("Received request for results for job_id: %s", job_id)
     try:
         redis_conn = get_redis_connection()
+        if not redis_conn: # Check if connection itself failed
+            app.logger.error("Redis connection unavailable in get_results for job %s.", job_id)
+            return jsonify({
+                "status": "error",
+                "message": "Error communicating with Redis."
+            }), 503
+
         job = Job.fetch(job_id, connection=redis_conn)
 
         if job.is_finished:
             result = job.result
             app.logger.info("Job %s finished. Result: %s", job_id, result)
-            cleanup_queue = get_translation_queue()
-
-            audio_path = job.kwargs.get('audio_path')
-            lyrics_path = job.kwargs.get('lyrics_path')
-            alignment_path = os.path.join(
-                '/shared-data/aligned',
-                f"{os.path.splitext(os.path.basename(audio_path))[0]}.json"
-            ) if audio_path else None
-            separate_path = os.path.join(
-                '/shared-data/separator_output/htdemucs_6s',
-                f"{os.path.splitext(os.path.basename(audio_path))[0]}"
-            ) if audio_path else None
-
             if isinstance(result, list):
-                cleanup_queue.enqueue('musictranslator.main.cleanup_files', [
-                    audio_path,
-                    lyrics_path,
-                    alignment_path,
-                    separate_path
-                ])
                 return jsonify({"status": "finished", "result": result}), 200
             app.logger.error("Job %s finished with unexpected result format: %s", job_id, result)
+            # If result is not a list, it might be an error object from the task
+            # Consider how to handle this - perhaps return 500 if it's not the expected list
+            # For now, let's assume if it's not a list, it's an issue
+            return jsonify({
+                "status": "failed",
+                "message": "Job finished with unexpected result type."
+            }), 500
 
         elif job.is_failed:
             app.logger.error("Job %s failed: %s", job_id, job.exc_info)
             return jsonify({"status": "failed", "message": str(job.exc_info)}), 500
         else:
-            return jsonify({"status": job.get_status()}), 202
+            response_data = {"status": job.get_status()}
+            if job.meta and 'progress_stage' in job.meta:
+                response_data['progress_stage'] = job.meta['progress_stage']
+            return jsonify(response_data), 202
 
     except rq.exceptions.NoSuchJobError:
         app.logger.warning("Job ID %s not found in Redis.", job_id)
@@ -434,7 +448,5 @@ def cleanup_files(audio_path, lyrics_path, alignment_path, separate_path):
         shutil.rmtree(separate_path)
         app.logger.info(f"Deleted: %s", separate_path)
 
-# if __name__ == "__main__":
-#     if not os.path.exists('uploads'):
-#         os.makedirs('uploads')
-#     app.run(host='0.0.0.0', port=20005, debug=True)
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=20005, debug=True)

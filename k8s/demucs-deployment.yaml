@@ -23,11 +23,11 @@ spec:
             - containerPort: 22227
           resources:
             requests:
-              cpu: "500m"
-              memory: "1Gi"
+              cpu: "4"
+              memory: "16Gi"
             limits:
-              cpu: "2"
-              memory: "8Gi"
+              cpu: "6"
+              memory: "48Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/audio
