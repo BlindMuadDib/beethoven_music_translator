@@ -58,12 +58,7 @@ class TestMFAWrapper(unittest.TestCase):
         # Mock successful model downloads, validation and alignment
         mock_corpus_dir.return_value = self.temp_corpus_dir
         mock_output_dir.return_value = self.temp_output_dir
-        mock_subprocess_run.side_effect = [
-            MagicMock(returncode=0),
-            MagicMock(returncode=0),
-            MagicMock(returncode=0),
-            MagicMock(returncode=0, stdout=b'{}')
-        ]
+        mock_subprocess_run.side_effect = [MagicMock(returncode=0, stdout=b'{}')]
 
         # Mock alignment to JSON format
         response = self.app.post('/align', json={
@@ -95,9 +90,6 @@ class TestMFAWrapper(unittest.TestCase):
         mock_output_dir.return_value = self.temp_output_dir
         # Mock successful model downloads and validation
         mock_subprocess_run.side_effect = [
-            MagicMock(returncode=0),
-            MagicMock(returncode=0),
-            MagicMock(returncode=0),
             subprocess.CalledProcessError(returncode=1, cmd=["mfa", "align", "--output_format", "json", self.temp_corpus_dir, "english_us_arpa", "english_us_arpa", self.temp_output_dir], stderr="Alignment failed"),
             subprocess.CalledProcessError(
                 returncode=1,
@@ -114,32 +106,6 @@ class TestMFAWrapper(unittest.TestCase):
         self.assertEqual(response.status_code, 500)
         data = json.loads(response.data.decode('utf-8'))
         self.assertIn('Alignment failed', data['error'])
-
-    @patch('musictranslator.aligner_wrapper.CORPUS_DIR')
-    @patch('musictranslator.aligner_wrapper.OUTPUT_DIR')
-    @patch('subprocess.run')
-    def test_align_validation_error(self, mock_subprocess_run, mock_output_dir, mock_corpus_dir):
-        # Mock successful model downloads, failed validation
-        mock_corpus_dir.return_value = self.temp_corpus_dir
-        mock_output_dir.return_value = self.temp_output_dir
-        mock_subprocess_run.side_effect = [
-            MagicMock(returncode=0),
-            MagicMock(returncode=0),
-            subprocess.CalledProcessError(
-                returncode=1,
-                cmd=["mfa", "validate", self.temp_corpus_dir, "english_us_arpa", "english_us_arpa"],
-                stderr="Validation failed",
-            )
-        ]
-
-        response = self.app.post('/align', json={
-            'vocal_stem_path': self.test_audio_full_path,
-            'lyrics_file_path': self.test_lyrics_full_path
-        })
-
-        self.assertEqual(response.status_code, 500)
-        data = json.loads(response.data.decode('utf-8'))
-        self.assertIn('Validation failed', data['error'])
 
     @patch('musictranslator.aligner_wrapper.CORPUS_DIR')
     @patch('musictranslator.aligner_wrapper.OUTPUT_DIR')

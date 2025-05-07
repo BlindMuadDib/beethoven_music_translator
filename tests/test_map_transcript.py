@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import mock_open, patch
 
-from musictranslator.musicprocessing.map_transcript import (
+from musictranslator.musicprocessing.transcribe import (
     process_transcript,
     map_transcript,
 )

@@ -8,7 +8,6 @@ import subprocess
 import os
 import time
 import requests
-import requests_mock
 import musictranslator
 from musictranslator.musicprocessing.transcribe import process_transcript
 
@@ -16,23 +15,43 @@ class TestIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        print("Starting setUpClass...")
         result = subprocess.run(['kind', 'get', 'clusters'], capture_output=True, text=True)
         if "kind" not in result.stdout:
             raise Exception("KIND cluster is not running. Please run run_integration_test.sh first.")
 
-        # Get NodePort
-        # result = subprocess.run(['kubectl', 'get', 'service', 'translator-service', '-o' 'jsonpath="{.spec.ports[0].nodePort}"'], capture_output=True, text=True)
-        # cls.nodeport = int(result.stdout.strip('""'))
-        # print(f"NodePort: {cls.nodeport}")
-
         # Wait for pods to get ready with a timeout
-        timeout = time.time() + 60
+        timeout = time.time() + 300
+        print("Waiting for pods to become ready...")
         while time.time() < timeout:
-            result = subprocess.run(['kubectl', 'get', 'pods', '-o', 'jsonpath={.items[*].status.containerStatuses[*].ready}"'], capture_output=True, text=True)
-            if "true true true" in result.stdout:
-                break
-            time.sleep(2)
+            # Check readiness of deployments
+            main_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+            worker_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-worker', '--timeout=0s'], capture_output=True).returncode == 0
+            align_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/mfa-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+            separate_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/demucs-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+            redis_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/redis', '--timeout=0s'], capture_output=True).returncode == 0
+            nginx_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/nginx-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+            ingress_ready = subprocess.run(['kubectl', 'wait', '--namespace', 'ingress-nginx', '--for=condition=available', 'deployment/ingress-nginx-controller', '--timeout=0s'], capture_output=True).returncode == 0
+
+            if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready:
+                try:
+                    print("Checking health endpoints...")
+                    main_health = requests.get("https://localhost/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+                    align_health = requests.get("https://localhost/align/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+                    separate_health = requests.get("https://localhost/separate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+
+                    if main_health.status_code == 200 and align_health.status_code == 200 and separate_health.status_code == 200:
+                        print("All health checks passed.")
+                        break
+                    else:
+                        print(f"Health checks failed. Main: {main_health.status_code}, Align: {align_health.status_code}, Separate: {separate_health.status_code}. Retrying...")
+
+                except requests.exceptions.RequestException as e:
+                    print(f"Health check request failed: {e}. Retrying...")
+
+            time.sleep(5)
         else:
+            subprocess.run(['kubectl', 'get', 'pods'])
             raise Exception("Timeout waiting for pods to become ready")
 
         cls.base_url = "https://localhost"
@@ -47,43 +66,89 @@ class TestIntegration(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.audio_file = open("data/audio/BloodCalcification-NoMore.wav", 'rb')
-        self.lyrics_file = open("data/lyrics/BloodCalcification-NoMore.txt", 'rb')
+        self.audio_file_path = "data/audio/BloodCalcification-NoMore.wav"
+        self.lyrics_file_path = "data/lyrics/BloodCalcification-NoMore.txt"
+        self.audio_file = open(self.audio_file_path, 'rb')
+        self.lyrics_file = open(self.lyrics_file_path, 'rb')
 
     def tearDown(self):
-        self.audio_file.close()
-        self.lyrics_file.close()
+        if hasattr(self, 'audio_file') and not self.audio_file.closed:
+            self.audio_file.close()
+        if hasattr(self, 'lyrics_file') and not self.lyrics_file.closed:
+            self.lyrics_file.close()
 
     def test_translate_success(self):
-        target_url = f"{self.base_url}/translate?access_code=''"
+        target_url = f"{self.base_url}/translate?access_code="
         files = {
-            'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
-            'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
+            'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
+            'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
         }
+
+        print("\nSubmitting translation job...")
         try:
+            # 1. Submit the job
             response = requests.post(
                 target_url,
                 files=files,
                 headers=self.host_header,
-                timeout=1200,
+                timeout=60,
                 verify=self.ssl_verify
             )
             response.raise_for_status() # Raise HTTPError for bad responses
+            self.assertEqual(response.status_code, 202)
 
-            # Parse the JSON response
             response_data = response.json()
-            self.assertEqual(response.status_code, 200)
+            self.assertIn("job_id", response_data)
+            job_id = response_data["job_id"]
+            print(f"Job submitted successfully with ID: {job_id}. Polling results...")
 
+            # 2. Poll for results
+            result_url = f"{self.base_url}/results/{job_id}"
+            timeout = time.time() + 1200
+            job_status = None
+
+            while time.time() < timeout:
+                time.sleep(10) # Poll every 10 seconds
+                try:
+                    result_response = requests.get(
+                        result_url,
+                        headers=self.host_header,
+                        verify=self.ssl_verify,
+                        timeout=20 # Timeout for polling request
+                    )
+                    result_response.raise_for_status()
+                    result_data = result_response.json()
+                    job_status = result_data.get("status")
+                    print(f"Polling job {job_id}: Status = {job_status}")
+
+                    if job_status == 'finished':
+                        self.assertIn("result", result_data)
+                        mapped_result = result_data["result"]
+                        print("Job finished successfully. Validating result...")
+                        break # Exit polling loop on success
+                    elif job_status == 'failed':
+                        self.fail(f"Translation job {job_id} failed. Details: {result_data.get('message', 'No message provided.')}")
+                    # Continue polling if status is 'queued' or 'started'
+
+                except requests.exceptions.RequestException as e:
+                    print(f"Polling request failed for job {job_id}. Retrying...")
+                except json.JSONDecodeError:
+                    print(f"Failed to decode JSON from result endpoint for job {job_id}. Retrying...")
+
+            if job_status != 'finished':
+                self.fail(f"Translation job {job_id} did not complete within the timeout. Final status: {job_status}")
+
+            # 3. Validate the final result
             # Extract words from the lyrics file
             # Ensure all are included in the final mapped_result
-            original_lyrics_lines = process_transcript("data/lyrics/BloodCalcification-NoMore.txt")
+            original_lyrics_lines = process_transcript(self.lyrics_file_path)
 
-            self.assertEqual(len(original_lyrics_lines), len(response_data), "Number of lines in original lyrics and mapped result do not match.")
+            self.assertEqual(len(original_lyrics_lines), len(mapped_result), "Number of lines in original lyrics and mapped result do not match.")
 
             # Assert the presence and order of words within each line
             for i, original_line in enumerate(original_lyrics_lines):
-                if i < len(response_data):
-                    mapped_line = response_data[i]
+                if i < len(mapped_result):
+                    mapped_line = mapped_result[i]
                     mapped_words_in_line = [item['word'].lower().strip(".,!?;:") for item in mapped_line]
 
                     self.assertEqual(len(original_line), len(mapped_words_in_line),
@@ -100,21 +165,18 @@ class TestIntegration(unittest.TestCase):
         except requests.exceptions.RequestException as e:
             self.fail(f"Request failed: {e}")
 
-        except json.JSONDecodeError as e:
-            self.fail(f"Invalid JSON response: {e}")
-
     def test_translate_without_access_code(self):
         """Test no access granted to those without code"""
         target_url = f"{self.base_url}/translate"
         files = {
-            'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
-            'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
+            'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
+            'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
         }
         response = requests.post(
             target_url,
             files=files,
             headers=self.host_header,
-            timeout=1200,
+            timeout=60,
             verify=self.ssl_verify
         )
         self.assertEqual(response.status_code, 401)
@@ -122,54 +184,69 @@ class TestIntegration(unittest.TestCase):
         self.assertIn("error", response_data)
         self.assertEqual(response_data["error"], "Access Denied. Please provide a valid access code.")
 
-    # def test_translate_mfa_error(self):
-    #     # Mock mfa error response
-    #     files = {
-    #             'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
-    #             'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
-    #     }
-    #     mock_mfa_error = {"error": "MFA alignment service unavailable"}
-    #
-    #     with requests_mock.Mocker() as m:
-    #         # Mock the /align endpoint to simulate an MFA error
-    #         m.post("http://mfa-service:24725/align", json=mock_mfa_error, status_code=500)
-    #
-    #         # Call the /translate endpoint
-    #         response = requests.post(self.flask_url, files=files, timeout=1200)
-    #
-    #         self.assertEqual(response.status_code, 500)
-    #         response_data = response.json()
-    #
-    #         self.assertIn("error", response_data)
-    #         self.assertEqual(response_data["error"], mock_mfa_error["error"])
-    #
-    # def test_translate_demucs_error(self):
-    #     # Mock demucs error
-    #     files = {
-    #             'audio': ('data/audio/BloodCalcification-NoMore.wav', self.audio_file, 'audio/wav'),
-    #             'lyrics': ('data/lyrics/BloodCalcification-NoMore.txt', self.lyrics_file, 'text/plain')
-    #     }
-    #     mock_demucs_error = {"error": "Demucs split service unavailable"}
-    #     with requests_mock.Mocker() as m:
-    #         m.post("http://demucs-service:22227/separate", json=mock_demucs_error, status_code=500)
-    #
-    #         # Ensure /align endpoint is not called by checking history
-    #         m.post("http://mfa-service:24725/align", status_code=200)
-    #         m.post("http://mfa-service:24725/align", status_code=500)
-    #
-    #         # Call the /translate endpoint
-    #         response = requests.post("http://locahost:30276/translate", files=files, timeout=1200)
-    #
-    #         self.assertEqual(response.status_code, 500)
-    #         response_data = response.json()
-    #
-    #         self.assertIn("error", response_data)
-    #         self.assertEqual(response_data["error"], mock_demucs_error["error"])
-    #
-    #         # Assert that /align endpoint was not called
-    #         history = m.request_history
-    #         align_calls = [req for req in history if req.url == "http://mfa-service:24625/align"]
-    #         self.assertEqual(len(align_calls), 0, "The /align endpoint should not have been called.")
+    def test_get_results_initial_status(self):
+        """Test getting the initial status of a job"""
+        print("\nTesting initial job status retrieval...")
+        target_url = f"{self.base_url}/translate?access_code="
+        files = {
+            'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
+            'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
+        }
+
+        try:
+            # Submit the job
+            response = requests.post(
+                target_url,
+                files=files,
+                headers=self.host_header,
+                timeout=60,
+                verify=self.ssl_verify
+            )
+            response.raise_for_status()
+            self.assertEqual(response.status_code, 202)
+            response_data = response.json()
+            self.assertIn("job_id", response_data)
+            job_id = response_data["job_id"]
+            print(f"Job submitted with ID: {job_id}. Checking initial status...")
+
+            # Give a moment for the job to be registered by RQ
+            time.sleep(2)
+
+            # Check the status
+            result_url = f"{self.base_url}/results/{job_id}"
+            result_response = requests.get(
+                result_url,
+                headers=self.host_header,
+                verify=self.ssl_verify,
+                timeout=20
+            )
+            result_response.raise_for_status()
+            result_data = result_response.json()
+
+            self.assertIn("status", result_data)
+            self.assertIn(result_data["status"], ['queued', 'started'], f"Expected initial status 'queued' or 'started', but got '{result_data['status']}'")
+            print(f"Initial job status retrieval test passed. Status: {result_data['status']}")
+
+        except requests.exceptions.RequestException as e:
+            self.fail(f"Error during initial status test: {e}")
+
+    def test_get_results_nonexistent_job(self):
+        """Tests getting results for a job ID that does not exist"""
+        print("\nTesting results retrieval for a non-existent job ID...")
+        non_existent_job_id = "non-existent-job-12345"
+        result_url = f"{self.base_url}/results/{non_existent_job_id}"
+
+        response = requests.get(
+            result_url,
+            headers=self.host_header,
+            verify=self.ssl_verify,
+            timeout=20
+        )
+        self.assertEqual(response.status_code, 404)
+        response_data = response.json()
+        self.assertIn("status", response_data)
+        self.assertEqual(response_data["status"], "error")
+        self.assertIn("Job ID not found or invalid.", response_data.get("message", ""))
 
     def test_main_deployment(self):
         # Test the musictranslator.main Flask app deployment and service
@@ -190,7 +267,6 @@ class TestIntegration(unittest.TestCase):
             verify=self.ssl_verify
             )
         self.assertEqual(response.status_code, 200)
-        self.assertIn('OK', response.text)
 
     def test_separator_deployment(self):
         # test the separator deployment and service
@@ -200,6 +276,6 @@ class TestIntegration(unittest.TestCase):
             verify=self.ssl_verify
             )
         self.assertEqual(response.status_code, 200)
-        self.assertIn('OK', response.text)
+        # Not exposed so response is index.html
 
     # Add more tests for other scenarios
