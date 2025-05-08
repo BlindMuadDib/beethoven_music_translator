@@ -11,12 +11,14 @@ Tertiary functions may also include ASL direct translations, NOT TO BE CONFUSED 
 
 # To run the Alpha version of the Music Translator
 There is not a front-end yet so current usage is limited.
-Send a POST request to /translate endpoint with a music (.wav) file and corresponding lyrics (.txt) file.
+Access the musictranslator.org website on your web browser, upload a music (.wav) file and corresponding lyrics (.txt) file, add an Alpha access code and submit.
 The response will be in the form of a JSON dictionary, containing the lyrics, line-by-line, with start and end times for each word.
+Alternatively, download this repository, start a Kubernetes cluster, set your own Access Code values in the main.py, and run locally on your own machine.
 
 # Music Translator by and for Deaf
 
-This project is designed to help translate music to those who can't hear it. 
+This project is designed to help translate music to those who can't hear it and otherwise enjoy it.
+Please reach out to me if you would like to contribute, or submit an issue or pull request.
 
 ## Key Technologies
 This project leverages the following tools:
