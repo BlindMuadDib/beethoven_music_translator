@@ -78,7 +78,7 @@ class TestIntegration(unittest.TestCase):
             self.lyrics_file.close()
 
     def test_translate_success(self):
-        target_url = f"{self.base_url}/translate?access_code="
+        target_url = f"{self.base_url}/translate?access_code=57TX_H9FK_77DBR7_QQ"
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
@@ -187,7 +187,7 @@ class TestIntegration(unittest.TestCase):
     def test_get_results_initial_status(self):
         """Test getting the initial status of a job"""
         print("\nTesting initial job status retrieval...")
-        target_url = f"{self.base_url}/translate?access_code="
+        target_url = f"{self.base_url}/translate?access_code=57TX_H9FK_77DBR7_QQ"
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')

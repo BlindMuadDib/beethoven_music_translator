@@ -46,7 +46,7 @@ class TestSeparate(unittest.TestCase):
             separate.SEPARATOR_SERVICE_URL,
             json=expected_data,
             headers=expected_headers,
-            timeout=10
+            timeout=1200
         )
 
     @patch('requests.post')

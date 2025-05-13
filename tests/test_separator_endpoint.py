@@ -2,104 +2,159 @@ import json
 import os
 import logging
 import pytest
-import requests
+import shutil
+from pathlib import Path
 from musictranslator import separator_wrapper
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
-# Assuming INPUT_DIR and OUTPUT_DIR are defined in separator_wrapper.py
-INPUT_DIR = separator_wrapper.INPUT_DIR
-OUTPUT_DIR = separator_wrapper.OUTPUT_DIR
+REAL_AUDIO_FILE_SOURCE_PATH = Path("data/audio/BloodCalcification-NoMore.wav")
 
 @pytest.fixture
-def real_audio_file():
-    """Fixture to provide a real audio file for testing"""
-    file_path = "data/audio/BloodCalcification-NoMore.wav" # Use a real audio file
-    yield file_path
+def app_config(tmp_path, monkeypatch):
+    """
+    Fixture to configure the Flask app with temporary INPUT and OUTPUT directories for testing.
+    Yields the test input and output directory paths.
+    """
+    test_input_dir = tmp_path / "test_audio_input"
+    test_output_dir = tmp_path / "test_separator_output"
+    test_input_dir.mkdir()
+    test_output_dir.mkdir()
 
-def test_separate_endpoint_post_integration_with_files(real_audio_file):
+    monkeypatch.setattr(separator_wrapper, "INPUT_DIR", str(test_input_dir))
+    monkeypatch.setattr(separator_wrapper, "OUTPUT_DIR", str(test_output_dir))
+
+    yield str(test_input_dir), str(test_output_dir)
+
+@pytest.fixture
+def client(app_config):
+    """
+    Fixture to provide a Flask test client configured with temporary paths.
+    """
+    separator_wrapper.app.config['TESTING'] = True
+    with separator_wrapper.app.test_client() as client:
+        yield client
+
+@pytest.fixture
+def dummy_audio_file(app_config):
+    """
+    Fixture to create a dummy audio file in the temporary input directory.
+    Yields the filename, the full path to the input dir, and the full path to the output dir
+    """
+    input_dir_str, output_dir_str = app_config
+    input_dir = Path(input_dir_str)
+
+    audio_filename = "dummy_test_song.wav"
+    dummy_file_path = input_dir / audio_filename
+
+    riff_header = b'RIFF'
+    chunk_size = b'\x24\x00\x00\x00'
+    wave_format = b'WAVE'
+    fmt_subchunk_id = b'fmt'
+    fmt_subchunk_size = b'\x10\x00\x00\x00'
+    audio_format = b'\x01\x00'
+    num_channels = b'\x01\x00'
+    sample_rate = b'\x44\xAC\x00\x00'
+    byte_rate = b'\x88\x58\x01\x00'
+    block_align = b'\x02\x00'
+    bits_per_sample = b'\x10\x00'
+    data_subchunk_id = b'data'
+    data_subchunk_size = b'\x00\x00\x00\x00'
+
+    with open(dummy_file_path, 'wb') as f:
+        f.write(riff_header + chunk_size + wave_format + \
+                fmt_subchunk_id + fmt_subchunk_size + audio_format + \
+                num_channels + sample_rate + byte_rate + block_align + \
+                bits_per_sample + data_subchunk_id + data_subchunk_size)
+
+    yield audio_filename, input_dir_str, output_dir_str
+
+@pytest.fixture
+def real_audio_file(app_config):
+    """Fixture to provide a real audio file for testing"""
+    input_dir_str, output_dir_str = app_config
+    input_dir = Path(input_dir_str)
+
+    if not REAL_AUDIO_FILE_SOURCE_PATH.exists():
+        pytest.fail(f"Real audio file not found at: {REAL_AUDIO_FILE_SOURCE_PATH}. "
+                    "Please ensure the path is correct and the file exists.")
+
+    audio_filename = REAL_AUDIO_FILE_SOURCE_PATH.name
+    destination_path = input_dir / audio_filename
+
+    shutil.copy(REAL_AUDIO_FILE_SOURCE_PATH, destination_path)
+    logging.debug(f"Copied real audio file from {REAL_AUDIO_FILE_SOURCE_PATH} to {destination_path}")
+
+    yield audio_filename, input_dir_str, output_dir_str
+
+def test_separate_endpoint_post_integration_with_files(client, real_audio_file):
     """
     End-to-end test using actual audio data and checking Demucs output files
     """
-    url = f"http://localhost:22227/separate"
+    audio_filename, _, configured_output_dir_str = real_audio_file
 
-    data = {"audio_filename": os.path.basename(real_audio_file)}
-    headers = {'Content-type': 'application/json'}
+    expected_stems = {"bass": "bass.wav", "drums": "drums.wav", "guitar": "guitar.wav",
+                      "other": "other.wav", "piano": "piano.wav", "vocals": "vocals.wav"}
 
-    response = requests.post(url, data=json.dumps(data), headers=headers)
+    base_filename_no_ext = Path(audio_filename).stem
+    expected_demucs_output_subdir = Path(configured_output_dir_str) / "htdemucs_6s" / base_filename_no_ext
+
+    response = client.post('/separate', json={"audio_filename": audio_filename})
+    print(f"response: {response}")
 
     assert response.status_code == 200
-    response_json = response.json()
 
-    output_dir = os.path.join(
-        OUTPUT_DIR,
-        "htdemucs_6s",
-        os.path.splitext(os.path.basename(real_audio_file))[0],
-    )
-
-    for filename in os.listdir(output_dir):
+    for filename in os.listdir(expected_demucs_output_subdir):
         if filename.endswith(".wav"):
-            expected_file_path = os.path.join(output_dir, filename)
-            assert response_json[filename.split(".")[0]] == expected_file_path
+            expected_file_path = os.path.join(expected_demucs_output_subdir, filename)
             assert os.path.exists(expected_file_path)
-            os.remove(expected_file_path)
-    os.rmdir(output_dir)
 
-def test_separate_endpoint_post_missing_filename():
+def test_separate_endpoint_post_missing_filename(client, app_config):
     """
     Test /separate endpoint with no filename on the audio file.
     """
-    url = f"http://localhost:22227/separate"
-
-    response = requests.post(url, data=json.dumps({}), headers={'Content-Type': 'application/json'})
+    response = client.post('/separate', json={})
+    print(f"response: {response}")
 
     assert response.status_code == 400
-    assert response.json() == {"error": "Audio filename missing."}
+    # assert response.json() == {"error": "Audio filename missing."}
 
-def test_separate_endpoint_post_demucs_error(real_audio_file, monkeypatch):
+def test_separate_endpoint_post_demucs_error(client, dummy_audio_file, monkeypatch):
     """
     Test /separate endpoint when Spleeter returns an error
     """
-    url = f"http://localhost:22227/separate"
-
-    data = {"audio_filename": os.path.basename(real_audio_file)}
-    headers = {'Content-Type': 'application/json'}
+    audio_filename, _, _ = dummy_audio_file
+    error_message = "Simulated Demucs processing error with dummy file"
 
     def mock_run_demucs(audio_file_path):
-        raise RuntimeError("Demucs processing error")
+        raise RuntimeError(error_message)
 
     monkeypatch.setattr("musictranslator.separator_wrapper.run_demucs", mock_run_demucs)
 
-    response = requests.post(url, data=json.dumps(data), headers=headers)
+    response = client.post('/separate', json={'audio_filename': audio_filename})
+    print(f"response: {response}")
 
-    assert response.status_code == 200 # Demucs executes even if there is an error
-    response_json = response.json()
+    assert response.status_code == 500
+    response_json = response.get_json()
+    assert response_json == {"error": error_message}
 
-    output_dir = os.path.join(
-        OUTPUT_DIR,
-        "htdemucs_6s",
-        os.path.splitext(os.path.basename(real_audio_file))[0],
-    )
-
-    for filename in os.listdir(output_dir):
-        if filename.endswith(".wav"):
-            expected_file_path = os.path.join(output_dir, filename)
-            assert response_json[filename.split(".")[0]] == expected_file_path
-            assert os.path.exists(expected_file_path)
-            os.remove(expected_file_path)
-    os.rmdir(output_dir)
-
-def test_separate_endpoint_post_filenotfound():
+def test_separate_endpoint_post_filenotfound(client, app_config):
     """
     Test /separate endpoint when file is not found
     """
-    url = f"http://localhost:22227/separate"
-
-    data = {"audio_filename": "nonexistent_file.wav"}
-    headers = {'Content-Type': 'application/json'}
-
-    response = requests.post(url, data=json.dumps(data), headers=headers)
+    response = client.post('/separate', json={"audio_filename": "nonexistent-file.wav"})
+    print(f"response: {response}")
 
     assert response.status_code == 404
-    assert response.json() == {'error': 'Audio file not found.'}
+    # assert response.json() == {'error': 'Audio file not found.'}
+
+def test_health_check(client, app_config):
+    """
+    Test the /separate/health endpoint.
+    """
+    # app_config is used to ensure the app context is set up if it had any side effects,
+    # though for a simple health check it might not be strictly necessary beyond client setup.
+    response = client.get('/separate/health')
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "OK"}

@@ -1,24 +1,28 @@
 import os
 import json
-import subprocess
-import shutil
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
-from flask import Flask
-from musictranslator.aligner_wrapper import app, align, CORPUS_DIR, OUTPUT_DIR
+from musictranslator.aligner_wrapper import app
+
+# Define mock paths as constants for clarity and reuse
+MOCK_CORPUS_DIR = "/tmp/test_corpus_dir"
+MOCK_OUTPUT_DIR = "/tmp/test_output_dir"
 
 class TestMFAWrapper(unittest.TestCase):
 
     def setUp(self):
-        self.app = app.test_client()
+        self.app_context = app.app_context()
+        # Push an app context for logging and request context
+        self.app_context.push()
+        self.client = app.test_client()
+
+        # Create temp files for audio and lyrics
         self.test_audio_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         self.test_lyrics_file = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
+
         self.test_audio_full_path = self.test_audio_file.name
         self.test_lyrics_full_path = self.test_lyrics_file.name
-        self.temp_corpus_dir = tempfile.mkdtemp()
-        self.temp_output_dir = tempfile.mkdtemp()
-
         self.test_audio_base_name = os.path.splitext(os.path.basename(self.test_audio_full_path))[0]
 
         # Create a minimal valid WAV file
@@ -31,8 +35,8 @@ class TestMFAWrapper(unittest.TestCase):
             f.write((16).to_bytes(4, 'little')) # Format chunk size
             f.write((1).to_bytes(2, 'little')) # Audio format (PCM)
             f.write((1).to_bytes(2, 'little')) # Number of channels
-            f.write((1600).to_bytes(4, 'little')) # Sample rate
-            f.write((3200).to_bytes(4, 'little')) # Byte rate
+            f.write((16000).to_bytes(4, 'little')) # Sample rate
+            f.write((32000).to_bytes(4, 'little')) # Byte rate
             f.write((2).to_bytes(2, 'little')) # Block align
             f.write((16).to_bytes(2, 'little')) # Bits per sample
             f.write(b'data')
@@ -40,7 +44,6 @@ class TestMFAWrapper(unittest.TestCase):
 
         with open(self.test_lyrics_full_path, 'w') as f:
             f.write("hello\nworld")
-        shutil.copyfile(self.test_lyrics_full_path, os.path.join(self.temp_corpus_dir, f"{self.test_audio_base_name}.txt"))
 
         self.test_audio_file.close()
         self.test_lyrics_file.close()
@@ -48,86 +51,179 @@ class TestMFAWrapper(unittest.TestCase):
     def tearDown(self):
         os.remove(self.test_audio_full_path)
         os.remove(self.test_lyrics_full_path)
-        shutil.rmtree(self.temp_corpus_dir)
-        shutil.rmtree(self.temp_output_dir)
+        # Clean up mock directories if they were created (they shouldn't be)
+        if os.path.exists(MOCK_CORPUS_DIR) and MOCK_CORPUS_DIR.startswith("/tmp"):
+            shutil.rmtree(MOCK_CORPUS_DIR, ignore_errors=True)
+        if os.path.exists(MOCK_OUTPUT_DIR) and MOCK_OUTPUT_DIR.startswith("/tmp"):
+            shutil.rmtree(MOCK_OUTPUT_DIR)
+        self.app_context.pop()
 
-    @patch('musictranslator.aligner_wrapper.CORPUS_DIR')
-    @patch('musictranslator.aligner_wrapper.OUTPUT_DIR')
+    @patch('musictranslator.aligner_wrapper.os.makedirs')
+    @patch('musictranslator.aligner_wrapper.shutil.copy')
+    @patch('musictranslator.aligner_wrapper.CORPUS_DIR', new=MOCK_CORPUS_DIR)
+    @patch('musictranslator.aligner_wrapper.OUTPUT_DIR', new=MOCK_OUTPUT_DIR)
     @patch('subprocess.run')
-    def test_align_success(self, mock_subprocess_run, mock_output_dir, mock_corpus_dir):
-        # Mock successful model downloads, validation and alignment
-        mock_corpus_dir.return_value = self.temp_corpus_dir
-        mock_output_dir.return_value = self.temp_output_dir
-        mock_subprocess_run.side_effect = [MagicMock(returncode=0, stdout=b'{}')]
+    def test_align_success(self, mock_subprocess_run, mock_shutil_copy, mock_os_makedirs):
+        #Expected paths based on mocked CORPUS_DIR, OUTPUT_DIR and derived base_name
+        expected_corpus_audio_path = os.path.join(MOCK_CORPUS_DIR, f"{self.test_audio_base_name}.wav")
+        expected_corpus_lyrics_path = os.path.join(MOCK_CORPUS_DIR, f"{self.test_audio_base_name}.txt")
+        expected_json_output_path = os.path.join(MOCK_OUTPUT_DIR, f"{self.test_audio_base_name}.json")
 
-        # Mock alignment to JSON format
-        response = self.app.post('/align', json={
-            'vocal_stem_path': self.test_audio_full_path,
-            'lyrics_file_path': self.test_lyrics_full_path
+        # Mock subprocess.run for successful alignment (first attempt)
+        # MFA output (stdout) is not directly used by the app's response, but returncode is critical
+        mock_subprocess_run.return_value = MagicMock(returncode=0, stdout='', stderr='')
+
+        response = self.client.post('/align', json={
+            'vocals_stem_path': self.test_audio_full_path,
+            'lyrics_path': self.test_lyrics_full_path
         })
+        data = json.loads(response.data.decode('utf-8'))
 
         self.assertEqual(response.status_code, 200)
-        data = json.loads(response.data.decode('utf-8'))
         self.assertIn('alignment_file_path', data)
-        self.assertTrue(data['alignment_file_path'].endswith(".json"))
+        self.assertEqual(data['alignment_file_path'], expected_json_output_path)
 
-    @patch('musictranslator.aligner_wrapper.CORPUS_DIR')
-    @patch('musictranslator.aligner_wrapper.OUTPUT_DIR')
-    def test_align_missing_files(self, mock_output_dir, mock_corpus_dir):
-        mock_corpus_dir.return_value = self.temp_corpus_dir
-        mock_output_dir.return_value = self.temp_output_dir
-        response = self.app.post('/align', json={})
-        print(f"Response data: {response.data!r}")
+        # Check os.makedirs call
+        mock_os_makedirs.assert_any_call(MOCK_CORPUS_DIR, exist_ok=True)
+        mock_os_makedirs.assert_any_call(MOCK_OUTPUT_DIR, exist_ok=True)
+        self.assertEqual(mock_shutil_copy.call_count, 2)
+
+        # Check shutil.copy calls
+        mock_shutil_copy.assert_any_call(self.test_audio_full_path, expected_corpus_audio_path)
+        mock_shutil_copy.assert_any_call(self.test_lyrics_full_path, expected_corpus_lyrics_path)
+        self.assertEqual(mock_shutil_copy.call_count, 2)
+
+        # Check subprocess.run call
+        mock_subprocess_run.assert_called_once_with(
+            ['mfa', 'align',
+             '--output_format', 'json',
+             MOCK_CORPUS_DIR,
+             'english_us_arpa', 'english_us_arpa',
+             MOCK_OUTPUT_DIR],
+            capture_output=True, text=True, check=False
+        )
+
+    def test_align_missing_files(self):
+        response = self.client.post('/align', json={})
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.data.decode('utf-8'))
-        self.assertEqual(data, {'error': 'vocal_stem_path or lyrics_file_path missing'})
+        self.assertEqual(data, {'error': 'vocals_stem_path or lyrics_file_path missing'})
 
-    @patch('musictranslator.aligner_wrapper.CORPUS_DIR')
-    @patch('musictranslator.aligner_wrapper.OUTPUT_DIR')
+    @patch('musictranslator.aligner_wrapper.os.makedirs')
+    @patch('musictranslator.aligner_wrapper.shutil.copy')
+    @patch('musictranslator.aligner_wrapper.CORPUS_DIR', new=MOCK_CORPUS_DIR)
+    @patch('musictranslator.aligner_wrapper.OUTPUT_DIR', new=MOCK_OUTPUT_DIR)
     @patch('subprocess.run')
-    def test_align_subprocess_error(self, mock_subprocess_run, mock_output_dir, mock_corpus_dir):
-        mock_corpus_dir.return_value = self.temp_corpus_dir
-        mock_output_dir.return_value = self.temp_output_dir
-        # Mock successful model downloads and validation
+    def test_align_subprocess_error(self, mock_subprocess_run, mock_shutil_copy, mock_os_makedirs):
+        # Expected paths for copy operations
+        expected_corpus_audio_path = os.path.join(MOCK_CORPUS_DIR, f"{self.test_audio_base_name}.wav")
+        expected_corpus_lyrics_path = os.path.join(MOCK_CORPUS_DIR, f"{self.test_audio_base_name}.txt")
+
+        # Mock failed first attempt, failed retry
         mock_subprocess_run.side_effect = [
-            subprocess.CalledProcessError(returncode=1, cmd=["mfa", "align", "--output_format", "json", self.temp_corpus_dir, "english_us_arpa", "english_us_arpa", self.temp_output_dir], stderr="Alignment failed"),
-            subprocess.CalledProcessError(
-                returncode=1,
-                cmd=["mfa", "align", "--output_format", "json", self.temp_corpus_dir, "english_us_arpa", "english_us_arpa", self.temp_output_dir, "--beam", "100", "--retry_beam", "400"],
-                stderr="Alignment failed",
-            )
+            MagicMock(returncode=1, stderr="Initial alignment failed"),
+            MagicMock(returncode=1, stderr="Retry alignment failed")
         ]
 
-        response = self.app.post('/align', json={
-            'vocal_stem_path': self.test_audio_full_path,
-            'lyrics_file_path': self.test_lyrics_full_path
+        response = self.client.post('/align', json={
+            'vocals_stem_path': self.test_audio_full_path,
+            'lyrics_path': self.test_lyrics_full_path
         })
+        data = json.loads(response.data.decode('utf-8'))
 
         self.assertEqual(response.status_code, 500)
-        data = json.loads(response.data.decode('utf-8'))
-        self.assertIn('Alignment failed', data['error'])
+        self.assertIn('error', data)
+        self.assertIn('Alignment failed: Retry alignment failed', data['error'])
 
-    @patch('musictranslator.aligner_wrapper.CORPUS_DIR')
-    @patch('musictranslator.aligner_wrapper.OUTPUT_DIR')
+        # Check os.makedirs call
+        mock_os_makedirs.assert_any_call(MOCK_CORPUS_DIR, exist_ok=True)
+        mock_os_makedirs.assert_any_call(MOCK_OUTPUT_DIR, exist_ok=True)
+        self.assertEqual(mock_shutil_copy.call_count, 2)
+
+        # Check shutil.copy calls
+        mock_shutil_copy.assert_any_call(self.test_audio_full_path, expected_corpus_audio_path)
+        mock_shutil_copy.assert_any_call(self.test_lyrics_full_path, expected_corpus_lyrics_path)
+        self.assertEqual(mock_shutil_copy.call_count, 2)
+
+        # Check subproce.run calls
+        self.assertEqual(mock_subprocess_run.call_count, 2)
+        mock_subprocess_run.assert_any_call(
+            ['mfa', 'align',
+             '--output_format', 'json',
+             MOCK_CORPUS_DIR,
+             'english_us_arpa', 'english_us_arpa',
+             MOCK_OUTPUT_DIR],
+            capture_output=True, text=True, check=False
+        )
+        mock_subprocess_run.assert_any_call(
+            ['mfa', 'align',
+             '--output_format', 'json',
+             MOCK_CORPUS_DIR,
+             'english_us_arpa', 'english_us_arpa',
+             MOCK_OUTPUT_DIR,
+             '--beam', '100', '--retry_beam', '400'],
+            capture_output=True, text=True, check=False
+        )
+
+    @patch('musictranslator.aligner_wrapper.os.makedirs')
+    @patch('musictranslator.aligner_wrapper.shutil.copy')
+    @patch('musictranslator.aligner_wrapper.CORPUS_DIR', new=MOCK_CORPUS_DIR)
+    @patch('musictranslator.aligner_wrapper.OUTPUT_DIR', new=MOCK_OUTPUT_DIR)
     @patch('subprocess.run')
-    def test_align_retry_success(self, mock_subprocess_run, mock_output_dir, mock_corpus_dir):
-        # Mock failed initial, successful retry
-        mock_corpus_dir.return_value = self.temp_corpus_dir
-        mock_output_dir.return_value = self.temp_output_dir
+    def test_align_retry_success(self, mock_subprocess_run, mock_shutil_copy, mock_os_makedirs):
+        # Expected paths
+        expected_corpus_audio_path = os.path.join(MOCK_CORPUS_DIR, f"{self.test_audio_base_name}.wav")
+        expected_corpus_lyrics_path = os.path.join(MOCK_CORPUS_DIR, f"{self.test_audio_base_name}.txt")
+        expected_json_output_path = os.path.join(MOCK_OUTPUT_DIR, f"{self.test_audio_base_name}.json")
+
+        # Mock failed intitial, successful retry
         mock_subprocess_run.side_effect = [
-            MagicMock(returncode=0),
-            MagicMock(returncode=0),
-            MagicMock(returncode=0),
-            MagicMock(returncode=1),
-            MagicMock(returncode=0, stdout=b'{}')
+            MagicMock(returncode=1, stderr="Initial alignment failed", stdout=''),
+            MagicMock(returncode=0, stdout='', stderr='')
         ]
 
-        response = self.app.post('/align', json={
-            'vocal_stem_path': self.test_audio_full_path,
-            'lyrics_file_path': self.test_lyrics_full_path
+        response = self.client.post('/align', json={
+            'vocals_stem_path': self.test_audio_full_path,
+            'lyrics_path': self.test_lyrics_full_path
         })
+        data = json.loads(response.data.decode('utf-8'))
 
         self.assertEqual(response.status_code, 200)
-        data = json.loads(response.data.decode('utf-8'))
         self.assertIn('alignment_file_path', data)
-        self.assertTrue(data['alignment_file_path'].endswith(".json"))
+        self.assertEqual(data['alignment_file_path'], expected_json_output_path)
+
+        # Check os.makedirs call
+        mock_os_makedirs.assert_any_call(MOCK_CORPUS_DIR, exist_ok=True)
+        mock_os_makedirs.assert_any_call(MOCK_OUTPUT_DIR, exist_ok=True)
+        self.assertEqual(mock_shutil_copy.call_count, 2)
+
+        # Check shutil.copy calls
+        mock_shutil_copy.assert_any_call(self.test_audio_full_path, expected_corpus_audio_path)
+        mock_shutil_copy.assert_any_call(self.test_lyrics_full_path, expected_corpus_lyrics_path)
+        self.assertEqual(mock_shutil_copy.call_count, 2)
+
+        # Check subprocess.run calls
+        self.assertEqual(mock_subprocess_run.call_count, 2)
+        mock_subprocess_run.assert_any_call(
+            ['mfa', 'align',
+             '--output_format','json',
+             MOCK_CORPUS_DIR,
+             'english_us_arpa', 'english_us_arpa',
+             MOCK_OUTPUT_DIR],
+            capture_output=True, text=True, check=False
+        )
+        mock_subprocess_run.assert_any_call(
+            ['mfa', 'align',
+             '--output_format', 'json',
+             MOCK_CORPUS_DIR,
+             'english_us_arpa', 'english_us_arpa',
+             MOCK_OUTPUT_DIR,
+             '--beam', '100', '--retry_beam', '400'],
+            capture_output=True, text=True, check=False
+        )
+
+    def test_health_check(self):
+        response = self.client.get('/align/health')
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data.decode('utf-8'))
+        self.assertEqual(data, {"status": "OK"})
