@@ -44,7 +44,7 @@ pipeline {
                 sh 'kubectl wait --for=condition=available deployment/translator-worker --timeout=300s'
                 sh 'kubectl wait --for=condition=available deployment/redis --timeout=300s'
                 sh 'kubectl wait --for=condition=available deployment/nginx-deployment --timeout=300s'
-                sh 'kubectl wait --for=condition=available deployment/demucs-deployment --timeout=600s
+                sh 'kubectl wait --for=condition=available deployment/demucs-deployment --timeout=600s'
                 sh 'kubectl wait --for=condition=available deployment/mfa-deployment --timeout=600s'
             }
         }
