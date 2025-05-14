@@ -34,19 +34,22 @@ jobs:
       run: kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s
     - name: Apply Kubernetes YAML files
       run: |
-        kubectl apply -f k8s/html-config.yaml
-        kubectl apply -f k8s/ingress.yaml
-        kubectl apply -f k8s/nginx-config.yaml
-        kubectl apply -f k8s/nginx-deployment.yaml
-        kubectl apply -f k8s/nginx-service.yaml
+        kubectl apply -f k8s/worker-deployment.yaml
         kubectl apply -f k8s/persistent-volumes.yaml
         kubectl apply -f k8s/persistent-volumes-claims.yaml
+        kubectl apply -f k8s/html-config.yaml
+        kubectl apply -f k8s/nginx-config.yaml
+        kubectl apply -f k8s/redis-deployment.yaml
         kubectl apply -f k8s/main-deployment.yaml
-        kubectl apply -f k8s/main-service.yaml
         kubectl apply -f k8s/demucs-deployment.yaml
-        kubectl apply -f k8s/demucs-service.yaml
         kubectl apply -f k8s/mfa-deployment.yaml
+        kubectl apply -f k8s/nginx-deployment.yaml
+        kubectl apply -f k8s/redis-service.yaml
+        kubectl apply -f k8s/main-service.yaml
+        kubectl apply -f k8s/demucs-service.yaml
         kubectl apply -f k8s/mfa-service.yaml
+        kubectl apply -f k8s/nginx-service.yaml
+        kubectl apply -f k8s/ingress.yaml
     - name: Wait for the pods to become ready
       run: |
         kubectl wait --for=condition=available deployment/translator-deployment --timeout=300s
