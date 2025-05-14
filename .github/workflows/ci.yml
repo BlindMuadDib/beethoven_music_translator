@@ -54,10 +54,10 @@ jobs:
       run: |
         kubectl wait --for=condition=available deployment/translator-deployment --timeout=300s
         kubectl wait --for=condition=available deployment/translator-worker --timeout=300s
-        kubectl wait --for=condition=available deployment/mfa-deployment --timeout=300s
         kubectl wait --for=condition=available deployment/demucs-deployment --timeout=300s
         kubectl wait --for=condition=available deployment/redis --timeout=300s
         kubectl wait --for=condition=available deployment/nginx-deployment --timeout=300s
+        kubectl wait --for=condition=available deployment/mfa-deployment --timeout=600s
     - name: Run tests with pytest
       run: pytest
     - name: Teardown Kubernetes cluster (kind)
