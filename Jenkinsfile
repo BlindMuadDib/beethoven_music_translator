@@ -4,7 +4,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git 'https://github.com/BlindMuadDib/Music-Translation-for-and-by-Deaf'
+                git 'https://github.com/BlindMuadDib/Music-Translation-for-and-by-Deaf.git'
             }
         }
         stage('Set up environment') {
