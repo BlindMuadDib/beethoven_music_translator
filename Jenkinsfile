@@ -21,7 +21,7 @@ pipeline {
         }
         stage('Start KIND and Deploy') {
             steps {
-                sh 'kind create cluster --config k8s/kind-config.yaml -- wait 5m'
+                sh 'kind create cluster --config k8s/kind-config.yaml --wait 5m'
                 sh 'kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml'
                 sh 'kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s'
                 sh 'kubectl apply -f k8s/worker-deployment.yaml'
