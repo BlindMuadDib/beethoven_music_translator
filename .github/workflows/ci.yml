@@ -26,8 +26,19 @@ jobs:
         sudo mv ./kind /usr/local/bin/kind
         curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
         sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    - name: Pull Docker images
+      run: |
+        docker pull docker.io/blindmuaddib/music-translator:0.0.5
+        docker pull docker.io/blindmuaddib/separate-endpoint:1
+        docker pull docker.io/blindmuaddib/align-endpoint:1
     - name: Start Kubernetes cluster (kind)
       run: kind create cluster --config k8s/kind-config.yaml --wait 5m
+    - name: Load Docker images onto cluster
+      run: |
+        kind load docker-image docker.io/blindmuaddib/music-translator:0.0.5
+        kind load docker-image docker.io/blindmuaddib/separate-endpoint:1
+        kind load docker-image docker.io/blindmuaddib/align-endpoint:1
+
     - name: Install NGINX Ingress Controller
       run: kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
     - name: Wait for NGINX Ingress Controller to be ready
