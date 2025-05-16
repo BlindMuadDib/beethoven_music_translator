@@ -11,11 +11,17 @@ pipeline {
             steps {
                 sh 'python -m venv venv'
                 sh 'source venv/bin/activate && pip install -r requirements.txt'
-                sh 'curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64'
-                sh 'chmod +x ./kind'
+                sh 'mkdir -p tools'
+                sh 'curl -Lo tools/kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64'
+                sh 'chmod +x tools/kind'
                 sh 'sudo mv ./kind /usr/local/bin/kind'
-                sh 'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"'
-                sh 'sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl'
+                sh 'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o tools/kubectl'
+                sh 'chmod +x tools/kubectl'
+                withEnv(['PATH=$PATH:$WORKSPACE/tools']) {
+                    sh 'echo "PATH is now: $PATH"'
+                    sh 'kind --version'
+                    sh 'kubectl version --client'
+                }
             }
         }
         stage('Start KIND and Deploy') {
