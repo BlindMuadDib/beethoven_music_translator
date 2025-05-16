@@ -14,7 +14,6 @@ pipeline {
                 sh 'mkdir -p tools'
                 sh 'curl -Lo tools/kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64'
                 sh 'chmod +x tools/kind'
-                sh 'sudo mv ./kind /usr/local/bin/kind'
                 sh 'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o tools/kubectl'
                 sh 'chmod +x tools/kubectl'
                 withEnv(['PATH=$PATH:$WORKSPACE/tools']) {
