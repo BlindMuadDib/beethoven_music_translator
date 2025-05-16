@@ -10,8 +10,7 @@ pipeline {
         stage('Set up environment') {
             steps {
                 sh 'python -m venv venv'
-                sh 'source venv/bin/activate'
-                sh 'pip install -r requirements.txt'
+                sh 'source venv/bin/activate && pip install -r requirements.txt'
                 sh 'curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64'
                 sh 'chmod +x ./kind'
                 sh 'sudo mv ./kind /usr/local/bin/kind'
