@@ -18,8 +18,8 @@ pipeline {
                 sh 'chmod +x tools/kubectl'
                 withEnv(['PATH+EXTRA=$WORKSPACE/tools']) {
                     sh 'echo "PATH is now: $PATH"'
-                    sh 'kind --version'
-                    sh 'kubectl version --client'
+                    sh '$WORKSPACE/tools/kind --version'
+                    sh '$WORKSPACE/tools/kubectl version --client'
                 }
             }
         }
