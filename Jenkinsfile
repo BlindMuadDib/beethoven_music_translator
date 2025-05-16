@@ -16,7 +16,7 @@ pipeline {
                 sh 'chmod +x tools/kind'
                 sh 'curl -o tools/kubectl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"'
                 sh 'chmod +x tools/kubectl'
-                withEnv(['PATH=$PATH:$WORKSPACE/tools']) {
+                withEnv(['PATH+EXTRA=$WORKSPACE/tools']) {
                     sh 'echo "PATH is now: $PATH"'
                     sh 'kind --version'
                     sh 'kubectl version --client'
