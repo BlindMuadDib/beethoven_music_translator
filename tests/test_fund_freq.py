@@ -8,7 +8,7 @@ import os
 import numpy as np
 import soundfile as sf
 import librosa
-from musictranslator.musicprocessing.fund_freq import analyze_fund_freq
+from musictranslator.f0_service.fund_freq import analyze_fund_freq
 
 # Define a directory for test audio files, relative to this test script
 TEST_AUDIO_DIR = os.path.join(os.path.dirname(__file__), 'test_audio')
