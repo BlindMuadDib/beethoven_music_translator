@@ -2,7 +2,6 @@ import json
 import shutil
 import os
 import io
-import unittest
 import uuid
 import pytest
 import redis
@@ -13,7 +12,7 @@ from unittest.mock import patch, MagicMock, ANY
 from musictranslator.main import app
 
 # --- Constants and Global Mocks ---
-ACCESS_CODE = 'NH009_GBF45_DBV88_NFD'
+ACCESS_CODE = ''
 MOCK_VALID_ACCESS_CODES = {ACCESS_CODE}
 
 # --- Pytest Fixtures
@@ -31,14 +30,8 @@ def client():
     """
     app.config['TESTING'] = True
 
-    app.config['UPLOAD_FOLDER'] = 'test_api_uploads'
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
     with app.test_client() as client:
         yield client # provide the client to the tests
-
-    if os.path.exists(app.config['UPLOAD_FOLDER']):
-        shutil.rmtree(app.config['UPLOAD_FOLDER'])
 
 @pytest.fixture
 def mock_uuid_generator():
@@ -84,6 +77,10 @@ def mock_file_validation():
 
 # --- Helper Functions ---
 
+def _get_project_root():
+    """Get's the project root directory from the current test file's location."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 def load_test_file(filepath):
     """Helper function to load test file data"""
     # Construct path relative to the test file's directory if it's not absolute
@@ -123,7 +120,7 @@ def test_translate_endpoint_post_success(
 ):
     """
     Test the /translate and /results endpoints
-    for a successful async translation
+    for a successful async translation, including F0 data
     """
     audio_file_path = "data/audio/BloodCalcification-NoMore.wav"
     lyrics_file_path = "data/lyrics/BloodCalcification-NoMore.txt"
@@ -132,6 +129,18 @@ def test_translate_endpoint_post_success(
     audio_data = load_test_file(audio_file_path)
     lyrics_data = load_test_file(lyrics_file_path)
     expected_mapped_results = load_json_file(expected_mapped_results_path)
+
+    # Define a mock F0 analysis result
+    mock_f0_analysis_data = {
+        "vocals": [220.5, 221.0, None, 220.0],
+        "bass": [110.0, 110.2, 110.5],
+        "other": [None, None, 440.0]
+    }
+
+    expected_final_result = {
+        "mapped_results": expected_mapped_results,
+        "f0_analysis": mock_f0_analysis_data
+    }
 
     data = {
         'audio': (audio_data, os.path.basename(audio_file_path)),
@@ -182,17 +191,51 @@ def test_translate_endpoint_post_success(
     mock_job = mock_rq_components['job']
     mock_job.is_finished = True
     mock_job.is_failed = False
-    mock_job.result = expected_mapped_results
+    mock_job.result = expected_final_result
 
     response_results = client.get(f'/results/{enqueued_job_id}')
 
     assert response_results.status_code == 200, f"Response data: {response_results.data.decode()}"
     response_results_json = response_results.get_json()
-    assert response_results_json == {"status": "finished", "result": expected_mapped_results}
+    assert response_results_json == {"status": "finished", "result": expected_final_result}
 
     mock_rq_components['job_fetch'].assert_called_once_with(enqueued_job_id, connection=mock_rq_components['redis_conn'])
 
-def test_get_results_pending_with_progress(client: FlaskClient, mock_rq_components: dict, mock_uuid_generator: dict):
+def test_get_results_success_f0_error(
+    client: FlaskClient,
+    mock_rq_components: dict,
+    mock_uuid_generator: dict
+):
+    """Tests /results when F0 analysis part of the job reported an error."""
+    job_id = mock_uuid_generator['test_job_id']
+    mock_job = mock_rq_components['job']
+
+    expected_mapped_results = [{"word": "test", "start": 0.0, "end": 1.0}]
+    f0_error_report = {
+        "error": "F0 service timeout during processing.",
+        "info": "F0 analysis did not complete successfully."
+    }
+    expected_final_result_with_f0_error = {
+        "mapped_results": expected_mapped_results,
+        "f0_analysis": f0_error_report
+    }
+
+    mock_job.id = job_id # Ensure fetched job ID matches
+    mock_job.is_finished = True
+    mock_job.is_failed = False
+    mock_job.result = expected_final_result_with_f0_error
+
+    response_results = client.get(f'/results/{job_id}')
+    assert response_results.status_code == 200
+    response_results_json = response_results.get_json()
+    assert response_results_json == {"status": "finished", "result": expected_final_result_with_f0_error}
+    mock_rq_components['job_fetch'].assert_called_once_with(job_id, connection=mock_rq_components['redis_conn'])
+
+def test_get_results_pending_with_progress(
+    client: FlaskClient,
+    mock_rq_components: dict,
+    mock_uuid_generator: dict
+):
     """Tests /results endpoint for a pending job with a progress_stage in meta."""
     job_id = mock_uuid_generator['test_job_id']
 
@@ -201,13 +244,13 @@ def test_get_results_pending_with_progress(client: FlaskClient, mock_rq_componen
     mock_job.is_finished = False
     mock_job.is_failed = False
     mock_job.get_status.return_value = 'started'
-    mock_job.meta = {'progress_stage': 'aligning_lyrics'}
+    mock_job.meta = {'progress_stage': 'stem_processing'}
 
     response = client.get(f'/results/{job_id}')
     assert response.status_code == 202
     expected_response_data = {
         "status": "started",
-        "progress_stage": "aligning_lyrics"
+        "progress_stage": "stem_processing"
     }
     assert response.get_json() == expected_response_data
     mock_rq_components['job_fetch'].assert_called_once_with(job_id, connection=mock_rq_components['redis_conn'])

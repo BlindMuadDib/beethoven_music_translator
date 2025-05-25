@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: f0-service
+spec:
+  selector:
+    app: f0-client
+  ports:
+    - protocol: TCP
+      port: 20006
+      targetPort: 20006
+

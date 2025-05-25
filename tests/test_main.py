@@ -163,7 +163,7 @@ class TestMain(unittest.TestCase):
         self.mock_get_queue.assert_called_once() # Ensure queue was requested
         # Check if save was called twice (for audio and lyrics)
         self.assertEqual(mock_save.call_count, 2)
-        # Check if enqueue was called with the coorect background task path and args
+        # Check if enqueue was called with the correct background task path and args
         self.mock_queue.enqueue.assert_called_once()
         args, kwargs = self.mock_queue.enqueue.call_args
         self.assertEqual(args[0], 'musictranslator.main.background_translation_task')
@@ -250,7 +250,16 @@ class TestMain(unittest.TestCase):
 
     def test_get_results_success(self):
         """Tests getting results for a successfully finished job."""
-        expected_result = [{"word": "example", "start": 0.1, "end": 0.5}]
+        expected_mapped_result = [{"word": "example", "start": 0.1, "end": 0.5}]
+        expected_f0 = {
+            "vocals": [220.0, 220.1, None, 220.5],
+            "bass": [110.0, None, 110.2],
+            "other": None # Example of a stem with no F0 or an error for that stem
+        }
+        expected_result = {
+            "mapped_result": expected_mapped_result,
+            "f0_analysis": expected_f0
+        }
         self.mock_job.is_finished = True
         self.mock_job.is_failed = False
         self.mock_job.result = expected_result
@@ -258,7 +267,12 @@ class TestMain(unittest.TestCase):
         response = self._get_results(self.test_job_id)
 
         self.assertEqual(response.status_code, 200, f"Response data: {response.data.decode()}")
-        self.assertEqual(json.loads(response.data), {"status": "finished", "result": expected_result})
+
+        response_json = json.loads(response.data)
+        self.assertEqual(response_json["status"], "finished")
+
+        self.assertDictEqual(response_json["result"], expected_result)
+
         self.mock_job_fetch.assert_called_once_with(self.test_job_id, connection=self.mock_redis_conn)
 
     def test_get_results_failed(self):
@@ -326,6 +340,51 @@ class TestMain(unittest.TestCase):
         self.mock_get_conn.assert_called() # Check if connection was attempted
         self.mock_redis_conn.ping.assert_called_once() # Check ping was attempted
 
+    def test_get_results_success_f0_analysis_had_error(self):
+        """Tests results when F0 analysis itself reported an error."""
+        expected_mapped_lyrics = [{"word": "another", "start": 1.0, "end": 1.5}]
+        f0_error_report = {
+            "error": "F0 service connection failed",
+            "info": "F0 analysis did not complete successfully."
+        }
+        expected_final_job_result = {
+            "mapped_result": expected_mapped_lyrics,
+            "f0_analysis": f0_error_report
+        }
+
+        self.mock_job.is_finished = True
+        self.mock_job.is_failed = False
+        self.mock_job.result = expected_final_job_result
+
+        response = self._get_results(self.test_job_id)
+        self.assertEqual(response.status_code, 200)
+        response_json = json.loads(response.data)
+        self.assertEqual(response_json["status"], "finished")
+        self.assertDictEqual(response_json["result"], expected_final_job_result)
+
+    def test_get_results_success_no_relevant_stems_for_f0(self):
+        """Tests results when no relevant stems were found for F0 analysis."""
+        expected_mapped_lyrics = [{"word": "nostems", "start": 2.0, "end": 2.5}]
+        f0_no_stems_info = {
+            "info": "No relevant stems were submitted for F0 analysis."
+        }
+        # In main.py, if request_f0_analysis returns this, f0_analysis_result_data will be this.
+        # Then final_job_result will have it.
+        expected_final_job_result = {
+            "mapped_result": expected_mapped_lyrics,
+            "f0_analysis": f0_no_stems_info
+        }
+
+        self.mock_job.is_finished = True
+        self.mock_job.is_failed = False
+        self.mock_job.result = expected_final_job_result
+
+        response = self._get_results(self.test_job_id)
+        self.assertEqual(response.status_code, 200)
+        response_json = json.loads(response.data)
+        self.assertEqual(response_json["status"], "finished")
+        self.assertDictEqual(response_json["result"], expected_final_job_result)
+
     def test_health_check_redis_failure(self):
         """Tests the health check endpoint when Redis connection fails."""
         # Simulate connection error on ping
@@ -357,6 +416,102 @@ class TestMain(unittest.TestCase):
 
         patch_get_conn_fail.stop() # Clean up this test's specific patch
         self.mock_get_conn.start() # Restart the default mock for other tests
+
+    # --- Background translation task unit tests ---
+
+    @patch('musictranslator.main.split_audio')
+    @patch('musictranslator.main.align_lyrics')
+    @patch('musictranslator.main.request_f0_analysis')
+    @patch('musictranslator.main.map_transcript')
+    @patch('musictranslator.main.get_current_job')
+    @patch('threading.Thread')
+    def test_background_translation_task_orchestration(
+        self,
+        mock_thread_class,
+        mock_get_job,
+        mock_map,
+        mock_req_f0,
+        mock_align_lyrics,
+        mock_split
+    ):
+        """Unit test for the background task orchestration"""
+        # Set up Mocks for this specific test
+        mock_get_job.return_value = self.mock_job
+        mock_job = mock_get_job.return_value
+        mock_job.meta = {} # Ensure meta is a dict
+        mock_job.connection = self.mock_get_conn
+
+        mock_split.return_value = {
+            "vocals": "/fake/stems/vocals.wav",
+            "bass": "/fake/stems/bass.wav",
+            "drums": "/fake/stems/drums.wav" # F0 client should filter this
+        }
+        # Mocking the direct calls that threads would make
+        mock_align_lyrics.return_value = "/fake/alignment.json"
+        mock_req_f0.return_value = {
+            "vocals": [220.0], "bass": [110.0]
+        }
+        mock_map.return_value = [{"word": "mapped_word", "start": 0.0, "end": 1.0}]
+
+        # --- Configure threading.Thread mock ---
+        # This is the key part: make threads execute their targets immediately and synchonously
+        # We need to store the targets that are passed to Thread constructor.
+
+        # List to hold the actual target functions passed to Thread constructor
+        # This helps if you need to inspect what target was set for each thread
+        # For this test, we'll directly execute them
+
+        created_thread_targets = []
+
+        def thread_constructor_side_effect(target, name=None, args=(), kwargs=None):
+            # This function will be called when `threading.Thread(target=...)` is invoked.
+            # It will create a mock thread instance whose start() method will
+            # immediately call the target.
+
+            # Store the target for potential instpection if needed
+            created_thread_targets.append(target)
+
+            mock_thread_instance = MagicMock()
+
+            # Define the action for the instance's start() method
+            def run_target_synchronously():
+                if target:
+                    target(*args, **(kwargs or {})) # Execute the original target function
+
+            mock_thread_instance.start = MagicMock(side_effect=run_target_synchronously)
+            mock_thread_instance.join = MagicMock() # join() does nothing in this synchonous test
+            return mock_thread_instance
+
+        # When musictranslator.main.threading.Thread is called, it will use our side effect
+        mock_thread_class.side_effect = thread_constructor_side_effect
+
+        # --- Call the function under test ---
+        result = main.background_translation_task("/fake/audio.wav", "/fake/lyrics.txt")
+
+        # --- Assertions ---
+        mock_split.assert_called_once_with("/fake/audio.wav")
+
+        # Assert that align_lyrics and request_f0_analysis were called
+        # (mocking them directly at module level)
+        mock_align_lyrics.assert_called_once_with("/fake/stems/vocals.wav", "/fake/lyrics.txt")
+
+        expected_f0_payload = {
+            "vocals": "/fake/stems/vocals.wav",
+            "bass": "/fake/stems/bass.wav",
+            # drums is filtered out by request_f0_analysis client
+        }
+        mock_req_f0.assert_called_once_with(mock_split.return_value)
+
+        mock_map.assert_called_once_with("/fake/alignment.json", "/fake/lyrics.txt")
+
+        expected_final_result = {
+            "mapped_result": [{"word": "mapped_word", "start": 0.0, "end": 1.0}],
+            "f0_analysis": {"vocals": [220.0], "bass": [110.0]}
+        }
+        self.assertEqual(result, expected_final_result)
+
+        # Verify that the two Thread instances were created
+        self.assertEqual(mock_thread_class.call_count, 2)
 
 if __name__ == '__main__':
     unittest.main()

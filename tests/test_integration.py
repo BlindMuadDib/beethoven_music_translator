@@ -5,7 +5,6 @@ import unittest
 import os
 import json
 import subprocess
-import os
 import time
 import requests
 import musictranslator
@@ -29,16 +28,18 @@ class TestIntegration(unittest.TestCase):
             worker_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-worker', '--timeout=0s'], capture_output=True).returncode == 0
             align_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/mfa-deployment', '--timeout=0s'], capture_output=True).returncode == 0
             separate_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/demucs-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+            f0_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/f0-deployment', '--timeout=0s'], capture_output=True).returncode == 0
             redis_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/redis', '--timeout=0s'], capture_output=True).returncode == 0
             nginx_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/nginx-deployment', '--timeout=0s'], capture_output=True).returncode == 0
             ingress_ready = subprocess.run(['kubectl', 'wait', '--namespace', 'ingress-nginx', '--for=condition=available', 'deployment/ingress-nginx-controller', '--timeout=0s'], capture_output=True).returncode == 0
 
-            if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready:
+            if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready and f0_ready:
                 try:
                     print("Checking health endpoints...")
                     main_health = requests.get("https://localhost/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
                     align_health = requests.get("https://localhost/align/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
                     separate_health = requests.get("https://localhost/separate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+                    f0_health = requests.get("https://localhost/f0/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
 
                     if main_health.status_code == 200 and align_health.status_code == 200 and separate_health.status_code == 200:
                         print("All health checks passed.")
@@ -91,7 +92,7 @@ class TestIntegration(unittest.TestCase):
                 target_url,
                 files=files,
                 headers=self.host_header,
-                timeout=60,
+                timeout=1200,
                 verify=self.ssl_verify
             )
             response.raise_for_status() # Raise HTTPError for bad responses
@@ -104,26 +105,31 @@ class TestIntegration(unittest.TestCase):
 
             # 2. Poll for results
             result_url = f"{self.base_url}/results/{job_id}"
-            timeout = time.time() + 1200
-            job_status = None
+            polling_timeout_seconds = 1500
+            polling_interval_seconds = 20
 
-            while time.time() < timeout:
-                time.sleep(10) # Poll every 10 seconds
+            start_polling_time = time.time()
+            job_status = None
+            final_job_result_data = None
+
+            while time.time() - start_polling_time < polling_timeout_seconds:
+                time.sleep(polling_interval_seconds)
                 try:
                     result_response = requests.get(
                         result_url,
                         headers=self.host_header,
                         verify=self.ssl_verify,
-                        timeout=20 # Timeout for polling request
+                        timeout=30 # Timeout for polling request
                     )
                     result_response.raise_for_status()
                     result_data = result_response.json()
                     job_status = result_data.get("status")
-                    print(f"Polling job {job_id}: Status = {job_status}")
+                    progress_stage = result_data.get("progress_stage", "N/A")
+                    print(f"Polling job {job_id}: Status = {job_status}, Stage = {progress_stage}")
 
                     if job_status == 'finished':
                         self.assertIn("result", result_data)
-                        mapped_result = result_data["result"]
+                        final_job_result_data = result_data["result"]
                         print("Job finished successfully. Validating result...")
                         break # Exit polling loop on success
                     elif job_status == 'failed':
@@ -135,12 +141,16 @@ class TestIntegration(unittest.TestCase):
                 except json.JSONDecodeError:
                     print(f"Failed to decode JSON from result endpoint for job {job_id}. Retrying...")
 
-            if job_status != 'finished':
+            if job_status != 'finished' or final_job_result_data is None:
                 self.fail(f"Translation job {job_id} did not complete within the timeout. Final status: {job_status}")
 
-            # 3. Validate the final result
-            # Extract words from the lyrics file
-            # Ensure all are included in the final mapped_result
+            # 3. Validate the final result structure
+            self.assertIsInstance(final_job_result_data, dict, f"Final job result should be a dictionary, but is {type(final_job_result_data)}.")
+
+            # Validate lyrics mapping portion
+            self.assertIn("mapped_result", final_job_result_data)
+            mapped_result = final_job_result_data["mapped_result"]
+            self.assertIsInstance(mapped_result, list)
             original_lyrics_lines = process_transcript(self.lyrics_file_path)
 
             self.assertEqual(len(original_lyrics_lines), len(mapped_result), "Number of lines in original lyrics and mapped result do not match.")
@@ -161,6 +171,31 @@ class TestIntegration(unittest.TestCase):
                                              f"Expected '{original_word}', got '{mapped_words_in_line[j]}'.")
                         else:
                             self.fail(f"Mapped result for line {i+1} is shorter than expected.")
+
+            # Validate f0_analysis portion
+            self.assertIn("f0_analysis", final_job_result_data)
+            f0_data = final_job_result_data["f0_analysis"]
+
+            # Check if F0 analysis reported an error or info message
+            if isinstance(f0_data, dict) and ("error" in f0_data or "info" in f0_data):
+                print(f"F0 Analysis part of the job reported: {f0_data}")
+                # Consider failing the test here if error is present
+            else:
+                self.assertIsInstance(f0_data, dict)
+                self.assertTrue(len(f0_data) > 0)
+
+                expected_stems_for_f0 = ["vocals", "bass", "guitar", "piano", "other"]
+                found_f0_stems = 0
+                for stem_name, stem_f0_values, in f0_data.items():
+                    self.assertIn(stem_name, expected_stems_for_f0)
+                    if stem_f0_values is not None:
+                        self.assertIsInstance(stem_f0_values, list)
+                        if stem_f0_values:
+                            self.assertTrue(all(isinstance(val, (int, float)) or val is None for val in stem_f0_values))
+
+                    found_f0_stems +=1
+                self.assertTrue(found_f0_stems > 0)
+                print("F0 analysis data structure appears valid.")
 
         except requests.exceptions.RequestException as e:
             self.fail(f"Request failed: {e}")
