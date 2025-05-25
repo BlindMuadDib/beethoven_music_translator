@@ -13,6 +13,8 @@ import subprocess
 import logging
 import uuid
 import magic
+import threading
+import time
 import redis
 import rq
 from rq import Queue, get_current_job
@@ -22,6 +24,7 @@ from werkzeug.utils import secure_filename
 from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
 from musictranslator.musicprocessing.transcribe import map_transcript
+from musictranslator.musicprocessing.F0 import request_f0_analysis
 
 app = Flask(__name__)
 
@@ -102,6 +105,8 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
     """
     alignment_json_path = None
     vocals_stem_path = None
+    f0_analysis_result = None
+    separate_cleanup_path = None
     job = get_current_job()
 
     logger = logging.getLogger("rq.worker")
@@ -113,6 +118,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
             unique_audio_path,
             unique_lyrics_path,
         )
+        if job: job.meta['progress_stage'] = 'starting'; job.save_meta()
 
         # --- 1. Separate Audio ---
         logger.info("Step 1: Splitting audio ...")
@@ -124,38 +130,102 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
 
         if isinstance(separate_result, dict) and "error" in separate_result:
             logger.error("Demucs error: %s", separate_result['error'])
+            raise Exception(f"Audio separation failed: {separate_result['error']}")
 
-        # Store paths for later use and cleanup
         vocals_stem_path = separate_result.get('vocals')
-        separate_path = None
-        if vocals_stem_path and isinstance(vocals_stem_path, str):
-            separate_path = os.path.dirname(vocals_stem_path)
-
         if not vocals_stem_path or not os.path.exists(vocals_stem_path):
             logger.error("Vocals track not found after separation.")
             raise Exception("Error during audio separation: Vocals track not found.")
-        logger.info("Step 1 Complete. Vocals Stem Path: %s", vocals_stem_path)
 
-        # --- 2. Align Lyrics ---
-        logger.info("Step 2: Aligning lyrics ...")
+        # Determine the common directory for cleanup
+        first_stem_path = next(iter(separate_result.values()), None)
+        if first_stem_path and isinstance(first_stem_path, str):
+            separate_cleanup_path = os.path.dirname(first_stem_path)
+        logger.info("Step 1 Complete. Vocals Stem Path: %s. Cleanup path: %s", vocals_stem_path, separate_cleanup_path)
+
+        # --- 2. Concurrent F0 Analysis and Lyrics Alignment ---
+        logger.info("Step 2: Starting concurrent F0 analysis and Lyrics Alignment ...")
         if job:
-            job.meta['progress_stage'] = 'aligning_lyrics'
+            job.meta['progress_stage'] = 'stem_processing'
             job.save_meta()
-        align_result = align_lyrics(vocals_stem_path, unique_lyrics_path)
-        logger.info("DEBUG - Received align_result: %s", align_result)
 
-        if isinstance(align_result, dict) and "error" in align_result:
-            logger.error("MFA error: %s", align_result['error'])
-            raise Exception("Lyrics alignment failed: %s", align_result['error'])
+        thread_results_shared = {
+            "alignment_json_path": None,
+            "f0_analysis_data": None,
+            "alignment_error": None,
+            "f0_error": None
+        }
 
-        alignment_json_path = align_result
-        if not alignment_json_path or not os.path.exists(alignment_json_path):
-            logger.error("Alignment JSON path not found after alignment.")
-            raise Exception("Error during lyrics alignment: Alignment result not found.")
-        logger.info("Step 2 Complete. Alignment JSON Path: %s", alignment_json_path)
+        def _align_lyrics_task():
+            try:
+                logger.info("Align-Thread: Starting lyrics alignment for vocals '%s' and lyrics '%s'.", vocals_stem_path, unique_lyrics_path)
+                result = align_lyrics(vocals_stem_path, unique_lyrics_path)
+                if isinstance(result, dict) and "error" in result:
+                    thread_results_shared["alignment_error"] = result["error"]
+                    logger.error("Align-Thread: MFA error = %s", result['error'])
+                elif not result or (isinstance(result, str) and not os.path.exists(result)):
+                    err_msg = f"Alignment result path invalid or not found: {result}"
+                    thread_results_shared["alignment_error"] = err_msg
+                    logger.error("Align-Thread: %s", err_msg)
+                else:
+                    thread_results_shared["alignment_json_path"] = result
+                    logger.info("Align-Thread: Alignment successful. Path: %s", result)
+            except Exception as e:
+                logger.error("Align-Thread: Exception - %s", e, exc_info=True)
+                thread_results_shared["alignment_error"] = str(e)
 
-        # --- 3. Map Transcript ---
-        logger.info("Step 3: Mapping transcript ...")
+        def _f0_analysis_task():
+            try:
+                logger.info("F0-Thread: Starting F0 analysis for stems: %s", list(separate_result.keys()))
+                # `separate_result` is the dict of paths from `split_audio`
+                result = request_f0_analysis(separate_result)
+                if isinstance(result, dict) and "error" in result:
+                    thread_results_shared["f0_error"] = result["error"]
+                    logger.error(f"F0-Thread: F0 service error - %s", result["error"])
+                elif not isinstance(result, dict):
+                    err_msg = f"F0 analysis returned unexpected data type: {type(result)}"
+                    thread_results_shared["f0_error"] = err_msg
+                    logger.error("F0-Thread: %s", err_msg)
+                else:
+                    thread_results_shared["f0_analysis_data"] = result
+                    logger.info("F0-Thread: F0 analysis successful. Instruments processed: %s", list(result.keys()))
+            except Exception as e:
+                logger.error("F0-Thread: Exception - %s", e, exc_info=True)
+                thread_results_shared["f0_error"] = str(e)
+
+        align_thread = threading.Thread(target=_align_lyrics_task, name="AlignLyricsThread")
+        f0_thread = threading.Thread(target=_f0_analysis_task, name="F0AnalysisThread")
+
+        align_thread.start()
+        f0_thread.start()
+
+        # Wait for both services to complete
+        align_thread.join()
+        f0_thread.join()
+
+        logger.info("Concurrent processing finished. Checking results ...")
+
+        # Process alignment results (critical path)
+        if thread_results_shared["alignment_error"]:
+            err_msg = f"Lyrics alignment failed: {thread_results_shared['alignment_error']}"
+            logger.error(err_msg)
+            raise Exception(err_msg)
+        alignment_json_path = thread_results_shared["alignment_json_path"]
+        logger.info("Step 2.1 (Alignment) Complete. Path: %s", alignment_json_path)
+
+        # Process F0 results
+        if thread_results_shared["f0_error"]:
+            logger.warning(f"F0 analysis encountered an error: %s. Proceeding without F0 data.",
+                           thread_results_shared['f0_error'])
+            f0_analysis_result = {
+                "error": thread_results_shared["f0_error"],
+                "info": "F0 analysis did not complete successfully."
+            }
+        f0_analysis_result = thread_results_shared["f0_analysis_data"]
+        logger.info("Step 2.2 (F0 Analysis) Complete.")
+
+        # --- 3. Map Transcript and Combine Results ---
+        logger.info("Step 3: Mapping transcript and combining results ...")
         if job:
             job.meta['progress_stage'] = 'mapping_transcript'
             job.save_meta()
@@ -166,7 +236,13 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
             logger.error("Failed to map alignment to transcript.")
             raise Exception("Failed to map alignment to transcript.")
 
-        logger.info("Background task completed successfully.")
+        # Final combined result structure
+        final_job_result = {
+            "mapped_result": mapped_result,
+            "f0_analysis": f0_analysis_result if f0_analysis_result else None
+        }
+        logger.info("Background task completed successfully. Final result structure prepared.")
+
         if job and job.connection:
             cleanup_queue = Queue('cleanup_files', connection=job.connection)
             cleanup_queue.enqueue(
@@ -174,17 +250,20 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
                 audio_path=unique_audio_path,
                 lyrics_path=unique_lyrics_path,
                 alignment_path=alignment_json_path,
-                separate_path=separate_path
+                separate_path=separate_cleanup_path
             )
         else:
             logger.error("Could not get job or Redis connection in background task for cleanup")
-        return mapped_result
+        return final_job_result
 
     except Exception as e:
         logger.error(
             "Error during background task: %s",
             e, exc_info=True
         )
+        if job:
+            job.meta['failure_reason'] = f"Task failed: {e}"
+            job.save_meta()
         raise
 
 # --- End Background Task Definition ---
@@ -282,7 +361,7 @@ def translate():
     Args:
         audio file and lyrics file
     Returns:
-        Alignment json of song and lyrics or error
+        Alignment json of song and lyrics with f0 analysis for each stem or error
     """
     app.logger.info("DEBUG - Received translation request. Attempting Redis connection ... ")
     # --- Get Queue (which implicitly checks/gets Redis connection) ---
@@ -348,7 +427,7 @@ def translate():
                 'musictranslator.main.background_translation_task',
                 args=(unique_audio_path, unique_lyrics_path),
                 job_id=job_id,
-                timeout=1200
+                job_timeout=5000
             )
             app.logger.info("Enqueued job %s", job.id)
 
@@ -383,7 +462,7 @@ def get_results(job_id):
         if job.is_finished:
             result = job.result
             app.logger.info("Job %s finished. Result: %s", job_id, result)
-            if isinstance(result, list):
+            if isinstance(result, dict):
                 return jsonify({"status": "finished", "result": result}), 200
             app.logger.error("Job %s finished with unexpected result format: %s", job_id, result)
             # If result is not a list, it might be an error object from the task
