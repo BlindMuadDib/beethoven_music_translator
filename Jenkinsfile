@@ -28,34 +28,37 @@ pipeline {
                 sh '$WORKSPACE/tools/kind create cluster --config k8s/kind-config.yaml --wait 5m'
                 sh '$WORKSPACE/tools/kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml'
                 sh '$WORKSPACE/tools/kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/worker-deployment.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/persistent-volumes.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/persistent-volumes-claims.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/html-config.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/nginx-config.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/redis-deployment.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/main-deployment.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/demucs-deployment.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/mfa-deployment.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/nginx-deployment.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/redis-service.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/main-service.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/demucs-service.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/mfa-service.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/nginx-service.yaml'
-                sh '$WORKSPACE/tools/kubectl apply -f k8s/ingress.yaml'
+                sh """
+                $WORKSPACE/tools/kubectl apply -f k8s/worker-deployment.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/persistent-volumes.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/persistent-volumes-claims.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/html-config.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/nginx-config.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/redis-deployment.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/main-deployment.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/demucs-deployment.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/mfa-deployment.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/f0-deployment.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/nginx-deployment.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/redis-service.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/main-service.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/demucs-service.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/mfa-service.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/f0-service.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/nginx-service.yaml
+                $WORKSPACE/tools/kubectl apply -f k8s/ingress.yaml                """
                 sh '$WORKSPACE/tools/kubectl wait --for=condition=available deployment/translator-deployment --timeout=300s'
                 sh '$WORKSPACE/tools/kubectl wait --for=condition=available deployment/translator-worker --timeout=300s'
                 sh '$WORKSPACE/tools/kubectl wait --for=condition=available deployment/redis --timeout=300s'
                 sh '$WORKSPACE/tools/kubectl wait --for=condition=available deployment/nginx-deployment --timeout=300s'
                 sh '$WORKSPACE/tools/kubectl wait --for=condition=available deployment/demucs-deployment --timeout=600s'
                 sh '$WORKSPACE/tools/kubectl wait --for=condition=available deployment/mfa-deployment --timeout=600s'
+                sh '$WORKSPACE/tools/kubectl wait --for=condition=available deployment/f0-deployment --timeout=600s'
             }
         }
         stage('Run Tests') {
             steps {
-                sh 'source venv/bin/activate' // Ensure virtual environment is active
-                sh 'pytest'
+                sh 'venv/bin/pytest' // Call pytest from the venv
             }
         }
         stage('Teardown') {
