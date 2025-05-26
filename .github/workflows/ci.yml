@@ -22,7 +22,14 @@ jobs:
         . venv/bin/activate
         pip install --upgrade pip && pip install -r requirements.txt
     - name: Set up KIND
-      uses: helm/kind-action@1.10.0
+      run: |
+        mkdir -p tools
+        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind # Add to PATH
+        curl -o ./kubectl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl # Add to PATH
     - name: Create KIND cluster and deploy application
       run: |
         kind create cluster --config k8s/kind-config.yaml --wait 5m
