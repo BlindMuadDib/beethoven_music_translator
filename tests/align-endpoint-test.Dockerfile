@@ -12,7 +12,6 @@ USER mfauser
 
 RUN /env/bin/mfa model download acoustic english_us_arpa
 RUN /env/bin/mfa model download dictionary english_us_arpa
-RUN /env/bin/mfa validate /app/corpus english_us_arpa
 
 WORKDIR /app
 COPY --chown=mfauser:mfauser ./aligner_wrapper.py /app/aligner_wrapper.py

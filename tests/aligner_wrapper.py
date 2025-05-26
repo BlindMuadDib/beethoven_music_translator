@@ -47,6 +47,16 @@ def align():
         app.logger.info(f"Copied audio to: {corpus_audio_path}")
         app.logger.info(f"Copied lyrics to {corpus_lyrics_path}")
 
+        # Validate the new input against the whole corpus for best results
+        validation_result = subprocess.run(
+            ["mfa", "validate", CORPUS_DIR,
+             "english_us_arpa", "english_us_arpa"],
+            capture_output=True, text=True, check=True
+        )
+
+        if validation_result.returncode != 0:
+            return jsonify({"error": f"Corpus validation failed: {validation_result.stderr}"}), 500
+
         # Perform alignment, set output format to JSON
         alignment_result = subprocess.run(
             ["mfa", "align",
