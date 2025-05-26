@@ -1,0 +1,44 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    - name: Install Python dependencies
+      run: |
+        python -m venv venv
+        . venv/bin/activate
+        pip install --upgrade pip && pip install -r requirements.txt
+    - name: Set up KIND
+      uses: helm/kind-action@1.10.0
+    - name: Create KIND cluster and deploy application
+      run: |
+        kind create cluster --config k8s/kind-config.yaml --wait 5m
+        kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=120s
+        kubectl apply -f k8s/
+        kubectl wait --for=condition=available deployment/translator-deployment --timeout=300s
+        kubectl wait --for=condition=available deployment/translator-worker --timeout=300s
+        kubectl wait --for=condition=available deployment/redis --timeout=300s
+        kubectl wait --for=condition=available deployment/nginx-deployment --timeout=300s
+        kubectl wait --for=condition=available deployment/demucs-deployment --timeout=600s
+        kubectl wait --for=condition=available deployment/mfa-deployment --timeout=600s
+        kubectl wait --for=condition=available deployment/f0-deployment --timeout=600s
+    - name: Run tests
+      run: |
+        . venv/bin/pytest
