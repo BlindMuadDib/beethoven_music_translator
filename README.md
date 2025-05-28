@@ -58,6 +58,7 @@ This project itself is licensed under AGPL. Please review the `LICENSE` file for
 This project would not be possible without the contributions of:
 - [Demucs](https://github.com/adefossez/demucs), for their open-source music source separation library.
 - [Montreal Forced Aligner](https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner), for their alignment tools.
+- [Librosa](https://github.com/librosa/librosa), for their open-source audio analysis tools.
 
 Thank you to the developers and maintainers of these invaluable tools.
 
