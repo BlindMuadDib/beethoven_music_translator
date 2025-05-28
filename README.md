@@ -49,8 +49,9 @@ This project leverages the following tools:
 ## Licensing
 This project adheres to the licensing terms of the software it incorporates:
 - [MIT License](https://opensource.org/licenses/MIT) for Demucs and Montreal Forced Aligner.
+- [ISC License](https://opensource.org/licenses/ISC) for Librosa.
 
-This project itself is licensed under GPL. Please review the `LICENSE` file for more details.
+This project itself is licensed under AGPL. Please review the `LICENSE` file for more details.
 
 ## Acknowledgements
 
