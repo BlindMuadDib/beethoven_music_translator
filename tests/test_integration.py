@@ -67,8 +67,8 @@ class TestIntegration(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.audio_file_path = "data/audio/BloodCalcification-NoMore.wav"
-        self.lyrics_file_path = "data/lyrics/BloodCalcification-NoMore.txt"
+        self.audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
+        self.lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
         self.audio_file = open(self.audio_file_path, 'rb')
         self.lyrics_file = open(self.lyrics_file_path, 'rb')
 
@@ -79,7 +79,7 @@ class TestIntegration(unittest.TestCase):
             self.lyrics_file.close()
 
     def test_translate_success(self):
-        target_url = f"{self.base_url}/translate?access_code="
+        target_url = f"{self.base_url}/translate?access_code=57TX_H9FK_77DBR7_QQ"
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
@@ -119,7 +119,7 @@ class TestIntegration(unittest.TestCase):
                         result_url,
                         headers=self.host_header,
                         verify=self.ssl_verify,
-                        timeout=30 # Timeout for polling request
+                        timeout=60 # Timeout for polling request
                     )
                     result_response.raise_for_status()
                     result_data = result_response.json()
@@ -141,8 +141,8 @@ class TestIntegration(unittest.TestCase):
                 except json.JSONDecodeError:
                     print(f"Failed to decode JSON from result endpoint for job {job_id}. Retrying...")
 
-            if job_status != 'finished' or final_job_result_data is None:
-                self.fail(f"Translation job {job_id} did not complete within the timeout. Final status: {job_status}")
+            self.assertEqual(job_status, 'finished', f"Job did not finish. Final status: {job_status}")
+            self.assertIsNotNone(final_job_result_data, "Final job result data is None.")
 
             # 3. Validate the final result structure
             self.assertIsInstance(final_job_result_data, dict, f"Final job result should be a dictionary, but is {type(final_job_result_data)}.")
@@ -157,20 +157,34 @@ class TestIntegration(unittest.TestCase):
 
             # Assert the presence and order of words within each line
             for i, original_line in enumerate(original_lyrics_lines):
-                if i < len(mapped_result):
-                    mapped_line = mapped_result[i]
-                    mapped_words_in_line = [item['word'].lower().strip(".,!?;:") for item in mapped_line]
+                self.assertLess(i, len(mapped_result), "Mapped result has fewer lines than original")
+                mapped_line = mapped_result[i]
 
-                    self.assertEqual(len(original_line), len(mapped_words_in_line),
-                                     f"Number of words in line {i+1} does not match.")
+                self.assertIn("line_text", mapped_line)
+                self.assertEqual(mapped_line["line_text"], original_line["original_text"],
+                                 f"Line text mismatch for line {i+1}.")
 
-                    for j, original_word in enumerate(original_line):
-                        if j < len(mapped_words_in_line):
-                            self.assertEqual(original_word, mapped_words_in_line[j],
-                                             f"Word mismatch in line {i+1}, position {j+1}: "
-                                             f"Expected '{original_word}', got '{mapped_words_in_line[j]}'.")
-                        else:
-                            self.fail(f"Mapped result for line {i+1} is shorter than expected.")
+                self.assertIn("words", mapped_line)
+                self.assertIsInstance(mapped_line["words"], list)
+
+                mapped_words_texts = [
+                    item.get('word', '').lower().strip(".,!?;:") for item in mapped_line["words"]
+                ]
+                original_words_in_line = original_line["word_list"]
+
+                self.assertEqual(len(mapped_words_texts), len(original_words_in_line),
+                                 f"Word count mismatch in line '{original_line['original_text']}' (line {i+1}).")
+
+                for j, original_word_text in enumerate(original_words_in_line):
+                    self.assertEqual(original_word_text, mapped_words_texts[j],
+                                        f"Word mismatch in line '{original_line['original_text']}' (line {i+1}), word {j+1}.")
+
+                self.assertIn("line_start_time", mapped_line)
+                self.assertIn("line_end_time", mapped_line)
+                # Timings can be None if no words in the line had timings
+                self.assertTrue(isinstance(mapped_line["line_start_time"], (float, int, type(None))),
+                                f"line_start_time for line {i+1} is not a number or None.")
+            print("Mapped result structure and content appear valid.")
 
             # Validate f0_analysis portion
             self.assertIn("f0_analysis", final_job_result_data)
@@ -180,6 +194,8 @@ class TestIntegration(unittest.TestCase):
             if isinstance(f0_data, dict) and ("error" in f0_data or "info" in f0_data):
                 print(f"F0 Analysis part of the job reported: {f0_data}")
                 # Consider failing the test here if error is present
+                if "error" in f0_data:
+                    self.fail(f"F0 analysis reported an error: {f0_data['error']}")
             else:
                 self.assertIsInstance(f0_data, dict)
                 self.assertTrue(len(f0_data) > 0)
@@ -189,16 +205,31 @@ class TestIntegration(unittest.TestCase):
                 for stem_name, stem_f0_values, in f0_data.items():
                     self.assertIn(stem_name, expected_stems_for_f0)
                     if stem_f0_values is not None:
-                        self.assertIsInstance(stem_f0_values, list)
-                        if stem_f0_values:
-                            self.assertTrue(all(isinstance(val, (int, float)) or val is None for val in stem_f0_values))
-
-                    found_f0_stems +=1
+                        self.assertIsInstance(stem_f0_values, dict)
+                        self.assertIn("times", stem_f0_values)
+                        self.assertIn("f0_values", stem_f0_values)
+                        self.assertIn("time_interval", stem_f0_values)
+                        self.assertIsInstance(stem_f0_values["times"], list)
+                        self.assertIsInstance(stem_f0_values["f0_values"], list)
+                        self.assertEqual(len(stem_f0_values["times"]), len(stem_f0_values["f0_values"]))
+                        if stem_f0_values["f0_values"]:
+                            self.assertTrue(any(v is not None for v in stem_f0_values["f0_values"]),
+                                            f"Expected at least one non-null F0 value for '{stem_name}' if list is not empty.")
+                        found_f0_stems +=1
                 self.assertTrue(found_f0_stems > 0)
-                print("F0 analysis data structure appears valid.")
+            print("F0 analysis data structure appears valid.")
+
+            # --- Validate audio_url and original_filename ---
+            self.assertIn("audio_url", final_job_result_data)
+            self.assertTrue(final_job_result_data["audio_url"].startswith(f"/files/{job_id}_"))
+            self.assertIn("original_filename", final_job_result_data)
+            self.assertEqual(final_job_result_data["original_filename"], os.path.basename(self.audio_file_path))
+            print("Audio URL and original filename appear valid.")
 
         except requests.exceptions.RequestException as e:
             self.fail(f"Request failed: {e}")
+        except json.JSONDecodeError as e:
+            self.fail(f"JSON decode error during integration test: {e}. Response: {response.text if 'response' in locals() else 'N/A'}")
 
     def test_translate_without_access_code(self):
         """Test no access granted to those without code"""
@@ -222,7 +253,7 @@ class TestIntegration(unittest.TestCase):
     def test_get_results_initial_status(self):
         """Test getting the initial status of a job"""
         print("\nTesting initial job status retrieval...")
-        target_url = f"{self.base_url}/translate?access_code="
+        target_url = f"{self.base_url}/translate?access_code=57TX_H9FK_77DBR7_QQ"
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')

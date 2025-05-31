@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: music-translator-container
-          image: docker.io/blindmuaddib/music-translator:0.0.5
+          image: docker.io/blindmuaddib/music-translator:0.0.7
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 20005

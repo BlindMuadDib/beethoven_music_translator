@@ -12,7 +12,7 @@ from unittest.mock import patch, MagicMock, ANY
 from musictranslator.main import app
 
 # --- Constants and Global Mocks ---
-ACCESS_CODE = ''
+ACCESS_CODE = 'NH009_GBF45_DBV88_NFD'
 MOCK_VALID_ACCESS_CODES = {ACCESS_CODE}
 
 # --- Pytest Fixtures
@@ -122,9 +122,10 @@ def test_translate_endpoint_post_success(
     Test the /translate and /results endpoints
     for a successful async translation, including F0 data
     """
-    audio_file_path = "data/audio/BloodCalcification-NoMore.wav"
-    lyrics_file_path = "data/lyrics/BloodCalcification-NoMore.txt"
-    expected_mapped_results_path = "data/mapped_results/BloodCalcification-NoMore.json"
+    audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
+    lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
+    # Update the mapped_result before running test with the new structure
+    expected_mapped_results_path = "data/mapped_results/BloodCalcification-SkinDeep.json"
 
     audio_data = load_test_file(audio_file_path)
     lyrics_data = load_test_file(lyrics_file_path)
@@ -132,14 +133,17 @@ def test_translate_endpoint_post_success(
 
     # Define a mock F0 analysis result
     mock_f0_analysis_data = {
-        "vocals": [220.5, 221.0, None, 220.0],
-        "bass": [110.0, 110.2, 110.5],
-        "other": [None, None, 440.0]
-    }
-
-    expected_final_result = {
-        "mapped_results": expected_mapped_results,
-        "f0_analysis": mock_f0_analysis_data
+        "vocals": {
+            "times": [0.01, 0.02, 0.03],
+            "f0_values": [220.0, 220.1, 220.5],
+            "time_interval": 0.01
+        },
+        "bass": {
+            "times": [0.01, 0.02, 0.03],
+            "f0_values": [110.0, None, 110.2],
+            "time_interval": 0.01
+        },
+        "other": None # Example of a stem with no F0 or an error for that stem
     }
 
     data = {
@@ -174,6 +178,15 @@ def test_translate_endpoint_post_success(
     expected_unique_audio_path = f"/shared-data/audio/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
     expected_unique_lyrics_path = f"/shared-data/lyrics/{enqueued_job_id}_{os.path.basename(lyrics_file_path)}"
 
+    expected_audio_url = f"/files/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
+
+    expected_final_result = {
+        "mapped_result": expected_mapped_results,
+        "f0_analysis": mock_f0_analysis_data,
+        "audio_url": expected_audio_url,
+        "original_filename": "BloodCalcification-SkinDeep.wav"
+    }
+
     # Check how save was called (order might vary, check both calls)
     saved_paths = [call_args[0][0] for call_args in mock_file_save.call_args_list]
     assert expected_unique_audio_path in saved_paths
@@ -184,7 +197,14 @@ def test_translate_endpoint_post_success(
     mock_rq_components['queue'].enqueue.assert_called_once()
     pos_args_enqueue, kw_args_enqueue = mock_rq_components['queue'].enqueue.call_args
     assert pos_args_enqueue[0] == 'musictranslator.main.background_translation_task'
-    assert kw_args_enqueue.get('args') == (expected_unique_audio_path, expected_unique_lyrics_path)
+    # Check arguments passed to the background task
+    expected_task_args = (
+        expected_unique_audio_path,
+        expected_unique_lyrics_path,
+        f"{enqueued_job_id}_{os.path.basename(audio_file_path)}",
+        os.path.basename(audio_file_path)
+    )
+    assert kw_args_enqueue.get('args') == expected_task_args
     assert kw_args_enqueue.get('job_id') == enqueued_job_id
 
     # --- Phase 2: Test /results/<job_id> endpoint (successful Job Completion) ---
@@ -197,7 +217,8 @@ def test_translate_endpoint_post_success(
 
     assert response_results.status_code == 200, f"Response data: {response_results.data.decode()}"
     response_results_json = response_results.get_json()
-    assert response_results_json == {"status": "finished", "result": expected_final_result}
+    assert response_results_json["status"] == "finished"
+    assert response_results_json["result"] == expected_final_result
 
     mock_rq_components['job_fetch'].assert_called_once_with(enqueued_job_id, connection=mock_rq_components['redis_conn'])
 
@@ -210,7 +231,15 @@ def test_get_results_success_f0_error(
     job_id = mock_uuid_generator['test_job_id']
     mock_job = mock_rq_components['job']
 
-    expected_mapped_results = [{"word": "test", "start": 0.0, "end": 1.0}]
+    expected_mapped_results = [{
+            'line_text': 'example line',
+            'words': [
+                {'text': 'example', 'start': 0.1, 'end': 0.5},
+                {'text': 'line', 'start': 0.6, 'end': 1.0}
+            ],
+            'line_start_time': 0.1,
+            'line_end_time': 1.0
+        }]
     f0_error_report = {
         "error": "F0 service timeout during processing.",
         "info": "F0 analysis did not complete successfully."
@@ -260,7 +289,7 @@ def test_translate_endpoint_missing_audio(client: FlaskClient, mock_rq_component
     """
     Test /translate endpoint with missing audio file
     """
-    lyrics_file_path = "data/lyrics/BloodCalcification-NoMore.txt"
+    lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
     lyrics_data = load_test_file(lyrics_file_path)
     data = {'lyrics': (lyrics_data, os.path.basename(lyrics_file_path))}
     headers = {'X-Access-Code': ACCESS_CODE}
@@ -280,7 +309,7 @@ def test_translate_endpoint_missing_lyrics(client: FlaskClient, mock_rq_componen
     """
     Test /translate endpoint with missing lyrics file
     """
-    audio_file_path = "data/audio/BloodCalcification-NoMore.wav"
+    audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
     audio_data = load_test_file(audio_file_path)
     data = {'audio': (audio_data, os.path.basename(audio_file_path))}
     headers = {'X-Access-Code': ACCESS_CODE}

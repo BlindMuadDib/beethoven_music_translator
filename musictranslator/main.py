@@ -19,7 +19,7 @@ import redis
 import rq
 from rq import Queue, get_current_job
 from rq.job import Job
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, send_from_directory
 from werkzeug.utils import secure_filename
 from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
@@ -28,9 +28,12 @@ from musictranslator.musicprocessing.F0 import request_f0_analysis
 
 app = Flask(__name__)
 
+# Define the directory where uploaded/processed files are stored for serving
+SERVE_AUDIO_DIR = '/shared-data/audio'
+
 # Store valid access codes
 
-VALID_ACCESS_CODES = set([''])
+VALID_ACCESS_CODES = set(['L4D5_R0CK_*0!L_&AND', '57TX_H9FK_77DBR7_QQ', 'NH009_GBF45_DBV88_NFD'])
 
 # --- Lazy Redis Connection and Queue  ---
 
@@ -91,13 +94,15 @@ def teardown_redis(exception=None):
 
 # --- Define the Background Task ---
 
-def background_translation_task(unique_audio_path, unique_lyrics_path):
+def background_translation_task(unique_audio_path, unique_lyrics_path, unique_audio_filename, original_audio_filename):
     """
     This function runs in the background worker.
     It performs audio separation, alignment, and transcription mapping.
     Args:
         unique_audio_path (str): Path to the uniquely named uploaded audio file.
         unique_lyrics_path (str): Path to the uniquely named uploaded lyrics file.
+        unique_audio_filename (str): The filename after sanitized with uuid
+        original_audio_filename (str): The audio filename the user uploaded
     Returns:
         dict: The final mapped_result JSON.
     Raises:
@@ -239,7 +244,9 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
         # Final combined result structure
         final_job_result = {
             "mapped_result": mapped_result,
-            "f0_analysis": f0_analysis_result if f0_analysis_result else None
+            "f0_analysis": f0_analysis_result if f0_analysis_result else None,
+            "audio_url": f"/files/{unique_audio_filename}",
+            "original_filename": original_audio_filename
         }
         logger.info("Background task completed successfully. Final result structure prepared.")
 
@@ -425,7 +432,7 @@ def translate():
         try:
             job = translation_queue.enqueue(
                 'musictranslator.main.background_translation_task',
-                args=(unique_audio_path, unique_lyrics_path),
+                args=(unique_audio_path, unique_lyrics_path, unique_audio_filename, original_audio_filename),
                 job_id=job_id,
                 job_timeout=5000
             )
@@ -506,6 +513,19 @@ def get_results(job_id):
             "status": "error",
             "message": "Internal server error checking job status."
         }), 500
+
+@app.route('/files/<path:unique_audio_filename>')
+def serve_file(unique_audio_filename):
+    """Serves a file from the SERVE_AUDIO_DIR."""
+    app.logger.info(f"Attempting to serve file: {unique_audio_filename} from {SERVE_AUDIO_DIR}")
+    try:
+        return send_from_directory(SERVE_AUDIO_DIR, unique_audio_filename, as_attachment=False)
+    except FileNotFoundError:
+        app.logger.error(f"File not found: {unique_audio_filename} in {SERVE_AUDIO_DIR}")
+        return jsonify({"error": "File not found"}), 404
+    except Exception as e:
+        app.logger.error(f"Error serving file {unique_audio_filename}: {e}")
+        return jsonify({"error": "Error serving file"}), 500
 
 def cleanup_files(audio_path, lyrics_path, alignment_path, separate_path):
     """Cleanup files after final result is determined and sent to frontend"""
