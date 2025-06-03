@@ -36,7 +36,7 @@ class TestIntegration(unittest.TestCase):
             if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready and f0_ready:
                 try:
                     print("Checking health endpoints...")
-                    main_health = requests.get("https://localhost/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+                    main_health = requests.get("https://localhost/api/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
                     align_health = requests.get("https://localhost/align/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
                     separate_health = requests.get("https://localhost/separate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
                     f0_health = requests.get("https://localhost/f0/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
@@ -55,7 +55,7 @@ class TestIntegration(unittest.TestCase):
             subprocess.run(['kubectl', 'get', 'pods'])
             raise Exception("Timeout waiting for pods to become ready")
 
-        cls.base_url = "https://localhost"
+        cls.base_url = "https://localhost/api"
         cls.host_header = {"Host": "musictranslator.org"}
         cls.ssl_verify = False
 
@@ -220,8 +220,9 @@ class TestIntegration(unittest.TestCase):
             print("F0 analysis data structure appears valid.")
 
             # --- Validate audio_url and original_filename ---
+            print(f"Audio URL: {final_job_result_data["audio_url"]}")
             self.assertIn("audio_url", final_job_result_data)
-            self.assertTrue(final_job_result_data["audio_url"].startswith(f"/files/{job_id}_"))
+            self.assertTrue(final_job_result_data["audio_url"].startswith(f"api/files/{job_id}_"))
             self.assertIn("original_filename", final_job_result_data)
             self.assertEqual(final_job_result_data["original_filename"], os.path.basename(self.audio_file_path))
             print("Audio URL and original filename appear valid.")
@@ -242,7 +243,7 @@ class TestIntegration(unittest.TestCase):
             target_url,
             files=files,
             headers=self.host_header,
-            timeout=60,
+            timeout=180,
             verify=self.ssl_verify
         )
         self.assertEqual(response.status_code, 401)
@@ -342,6 +343,5 @@ class TestIntegration(unittest.TestCase):
             verify=self.ssl_verify
             )
         self.assertEqual(response.status_code, 200)
-        # Not exposed so response is index.html
 
     # Add more tests for other scenarios

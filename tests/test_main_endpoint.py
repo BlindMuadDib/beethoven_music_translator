@@ -157,7 +157,7 @@ def test_translate_endpoint_post_success(
     # The files should be saved to the unique paths for the background worker
     with patch('werkzeug.datastructures.FileStorage.save') as mock_file_save:
         response_translate = client.post(
-            '/translate',
+            '/api/translate',
             data=data,
             content_type='multipart/form-data',
             headers=headers
@@ -295,7 +295,7 @@ def test_translate_endpoint_missing_audio(client: FlaskClient, mock_rq_component
     headers = {'X-Access-Code': ACCESS_CODE}
 
     response = client.post(
-        '/translate',
+        '/api/translate',
         data=data,
         content_type='multipart/form-data',
         headers=headers
@@ -314,7 +314,7 @@ def test_translate_endpoint_missing_lyrics(client: FlaskClient, mock_rq_componen
     data = {'audio': (audio_data, os.path.basename(audio_file_path))}
     headers = {'X-Access-Code': ACCESS_CODE}
     response = client.post(
-            '/translate',
+            '/api/translate',
             data=data,
             content_type='multipart/form-data',
             headers=headers

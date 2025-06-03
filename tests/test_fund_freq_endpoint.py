@@ -66,7 +66,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
 
     def test_health_check(self):
         """Test the /f0/health endpoint."""
-        response = self.client.get('/f0/health')
+        response = self.client.get('/api/f0/health')
         self.assertEqual(response.status_code, 200)
         json_data = response.get_json()
         self.assertEqual(json_data['status'], 'OK')
@@ -82,7 +82,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
                 "other": self.other_file
             }
         }
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 200, f"Response data: {response.data.decode()}")
         results = response.get_json()
 
@@ -151,7 +151,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
     def test_analyze_f0_silent_stem(self):
         """Test a stem that is silent (should result in null/None F0 data)."""
         payload = {"stem_paths": {"vocals": self.silent_file}}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 200)
         results = response.get_json()
         self.assertIn("vocals", results)
@@ -160,7 +160,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
     def test_analyze_f0_non_existent_stem(self):
         """Test a stem path that does not exist."""
         payload = {"stem_paths": {"guitar": self.non_existent_file}}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 200)
         results = response.get_json()
         self.assertIn("guitar", results)
@@ -169,7 +169,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
     def test_analyze_f0_empty_stem_paths(self):
         """Test with an empty stem_paths dictionary."""
         payload = {"stem_paths": {}}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 200)
         results = response.get_json()
         self.assertEqual(results, {})
@@ -177,7 +177,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
     def test_analyze_f0_missing_stem_paths_key(self):
         """Test request body missing the 'stem_paths' key."""
         payload = {"some_other_key": "value"}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 400)
         error_data = response.get_json()
         self.assertIn("error", error_data)
@@ -186,7 +186,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
     def test_analyze_f0_stem_paths_not_a_dict(self):
         """Test when 'stem_paths' is not a dictionary."""
         payload = {"stem_paths": "not_a_dictionary"}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 400)
         error_data = response.get_json()
         self.assertIn("error", error_data)
@@ -194,7 +194,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
 
     def test_analyze_f0_not_json_request(self):
         """Test sending a request that is not application/json."""
-        response = self.client.post('/analyze_f0', data="this is not json")
+        response = self.client.post('/api/analyze_f0', data="this is not json")
         self.assertEqual(response.status_code, 415)
         error_data = response.get_json()
         self.assertIn("error", error_data)

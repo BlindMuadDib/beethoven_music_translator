@@ -140,11 +140,11 @@ class TestMain(unittest.TestCase):
                 'audio': (audio_file, audio_filename),
                 'lyrics': (lyrics_file, lyrics_filename)
             }
-            return self.client.post('/translate', data=data, content_type='multipart/form-data', headers=headers)
+            return self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers=headers)
 
     def _get_results(self, job_id):
         """Helper to get results from the results endpoint."""
-        return self.client.get(f'/results/{job_id}')
+        return self.client.get(f'/api/results/{job_id}')
 
     # --- Test Cases ---
 
@@ -184,7 +184,7 @@ class TestMain(unittest.TestCase):
         """Tests /translate with missing audio file"""
         with open(self.test_lyrics_full_path, 'rb') as lyrics_file:
             data = {'lyrics': (lyrics_file, 'test_lyrics.txt')}
-            response = self.client.post('/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
+            response = self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.data), {'error': 'Missing audio or lyrics file.'})
 
@@ -192,7 +192,7 @@ class TestMain(unittest.TestCase):
         """Tests the /translate endpoint when lyrics file is missing"""
         with open(self.test_audio_full_path, 'rb') as audio_file:
             data = {'audio': (audio_file, 'test_audio.wav')}
-            response = self.client.post('/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
+            response = self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.data), {'error': 'Missing audio or lyrics file.'})
 
@@ -349,7 +349,7 @@ class TestMain(unittest.TestCase):
         # Ensure the mock connection doesn't raise an error on ping
         self.mock_redis_conn.ping.side_effect = None
 
-        response = self.client.get('/translate/health')
+        response = self.client.get('/api/translate/health')
 
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.data)
@@ -428,7 +428,7 @@ class TestMain(unittest.TestCase):
         # Simulate connection error on ping
         self.mock_redis_conn.ping.side_effect = redis.exceptions.ConnectionError("Ping failed")
 
-        response = self.client.get('/translate/health')
+        response = self.client.get('/api/translate/health')
 
         self.assertEqual(response.status_code, 503)
         data = json.loads(response.data)
@@ -443,7 +443,7 @@ class TestMain(unittest.TestCase):
         patch_get_conn_fail = patch('musictranslator.main.get_redis_connection', return_value=None)
         mock_get_conn_fail = patch_get_conn_fail.start()
 
-        response = self.client.get('/translate/health')
+        response = self.client.get('/api/translate/health')
 
         self.assertEqual(response.status_code, 503)
         data = json.loads(response.data)
