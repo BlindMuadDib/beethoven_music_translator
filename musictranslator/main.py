@@ -245,7 +245,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
         final_job_result = {
             "mapped_result": mapped_result,
             "f0_analysis": f0_analysis_result if f0_analysis_result else None,
-            "audio_url": f"/files/{unique_audio_filename}",
+            "audio_url": f"api/files/{unique_audio_filename}",
             "original_filename": original_audio_filename
         }
         logger.info("Background task completed successfully. Final result structure prepared.")
@@ -340,7 +340,7 @@ def validate_text(file_path):
         app.logger.error("Error validating text: %s", e)
         return False
 
-@app.route('/translate/health', methods=['GET'])
+@app.route('/api/translate/health', methods=['GET'])
 def health_check():
     """Health check endpoint using live test"""
     conn = get_redis_connection() # This attempts connection
@@ -360,7 +360,7 @@ def health_check():
         "redis_health_check": "connected" if redis_live_ok else "disconnected (live test)"
     }), status_code
 
-@app.route('/translate', methods=['POST'])
+@app.route('/api/translate', methods=['POST'])
 def translate():
     """
     Handles audio and lyrics translation requests
@@ -451,7 +451,7 @@ def translate():
             os.remove(unique_lyrics_path)
         return jsonify({"error": "Internal server error processing request."}), 500
 
-@app.route('/results/<job_id>', methods=['GET'])
+@app.route('/api/results/<job_id>', methods=['GET'])
 def get_results(job_id):
     """Check the job status"""
     app.logger.info("Received request for results for job_id: %s", job_id)
@@ -514,7 +514,7 @@ def get_results(job_id):
             "message": "Internal server error checking job status."
         }), 500
 
-@app.route('/files/<path:unique_audio_filename>')
+@app.route('/api/files/<path:unique_audio_filename>')
 def serve_file(unique_audio_filename):
     """Serves a file from the SERVE_AUDIO_DIR."""
     app.logger.info(f"Attempting to serve file: {unique_audio_filename} from {SERVE_AUDIO_DIR}")

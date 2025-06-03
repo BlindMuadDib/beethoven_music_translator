@@ -9,7 +9,7 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = app.logger # Use Flask's logger
 
-@app.route('/analyze_f0', methods=['POST'])
+@app.route('/api/analyze_f0', methods=['POST'])
 def analyze_f0_endpoint():
     """Endpoint to analyze fundamental frequency for given audio stem paths.
     Expects JSON: {"stem_paths": {"instrument_name": "/path/to/audio.wav", ...}}

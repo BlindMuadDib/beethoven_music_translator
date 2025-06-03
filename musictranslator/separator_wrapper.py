@@ -56,7 +56,7 @@ def run_demucs(audio_file_path):
     except Exception as e:
         raise RuntimeError(f"An unexpected error occurred: {e}")
 
-@app.route('/separate', methods=['POST'])
+@app.route('/api/separate', methods=['POST'])
 def separate():
     """Creates a Flask endpoint that separates audio file into stems using Demucs."""
     app.logger.info("Separate function called")
@@ -79,11 +79,9 @@ def separate():
     except Exception as e:
         return jsonify({'error': f"An unexpected error occurred: {e}"}), 500
 
-@app.route('/separate/health', methods=['GET'])
+@app.route('/api/separate/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "OK"}), 200
 
 if __name__ == '__main__':
-    if not os.path.exists('uploads'):
-        os.makedirs('uploads')
     app.run(host='0.0.0.0', port=22227)

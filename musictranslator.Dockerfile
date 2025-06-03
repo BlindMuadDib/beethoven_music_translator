@@ -20,7 +20,7 @@ COPY worker.py /app/worker.py
 
 # Basic health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:20005/translate/health || exit 1
+  CMD curl -f http://localhost:20005/api/translate/health || exit 1
 
 # Command to run the app
-CMD ["gunicorn", "--bind", "0.0.0.0:20005", "musictranslator.main:app", "--workers", "3", "--timeout", "120"]
+CMD ["gunicorn", "--bind", "0.0.0.0:20005", "musictranslator.main:app", "--workers", "3", "--timeout", "5000"]

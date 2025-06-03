@@ -4,14 +4,10 @@ WORKDIR /app
 
 USER root
 RUN /opt/conda/bin/mamba install -n base flask gunicorn -y
-
-COPY --chown=mfauser:mfauser ./data/corpus /app/corpus
-
 USER mfauser
 
 RUN /env/bin/mfa model download acoustic english_us_arpa
 RUN /env/bin/mfa model download dictionary english_us_arpa
-RUN /env/bin/mfa validate /app/corpus english_us_arpa
 
 WORKDIR /app
 COPY --chown=mfauser:mfauser ./musictranslator/aligner_wrapper.py /app/aligner_wrapper.py

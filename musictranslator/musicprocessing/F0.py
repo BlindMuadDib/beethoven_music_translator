@@ -9,7 +9,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-F0_SERVICE_URL = "http://f0-service:20006/analyze_f0"
+F0_SERVICE_URL = "http://f0-service:20006/api/analyze_f0"
 
 def request_f0_analysis(stem_paths: dict):
     """

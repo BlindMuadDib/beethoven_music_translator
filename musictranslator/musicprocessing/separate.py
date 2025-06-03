@@ -7,7 +7,7 @@ Allows more accurate lyric alignment and volume/pitch analysis
 import os
 import requests
 
-SEPARATOR_SERVICE_URL = "http://demucs-service:22227/separate"
+SEPARATOR_SERVICE_URL = "http://demucs-service:22227/api/separate"
 
 def split_audio(input_file):
     """
