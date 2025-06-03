@@ -2,12 +2,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: nginx-service
+  name: beethoven-service
   labels:
-    app: nginx
+    app: beethoven
 spec:
   selector:
-    app: nginx
+    app: beethoven
   ports:
     - name: http
       protocol: TCP
