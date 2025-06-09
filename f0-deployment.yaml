@@ -1,0 +1,37 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: f0-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: f0-client
+  template:
+    metadata:
+      labels:
+        app: f0-client
+    spec:
+      containers:
+        - name: f0-client-container
+          image: docker.io/blindmuaddib/f0-endpoint:1.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 20006
+          resources:
+            requests:
+              cpu: "4"
+              memory: "16Gi"
+            limits:
+              cpu: "6"
+              memory: "24Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data/separator_output
+              subPath: separator_output
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+

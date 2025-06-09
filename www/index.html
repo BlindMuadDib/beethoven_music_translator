@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Translator for and by Deaf (Alpha)</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="upload-ui-container">
+        <h1>Beethoven - Music Translator for and by Deaf (Alpha)</h1>
+        <p>Welcome! Upload a <strong>.wav</strong> audio file, its corresponding <strong>.txt</strong> lyrics, and provide an access code.</p>
+        <p>Uploaded files will be used only for processing your translation request and are not saved to our database.</p>
+
+        <div class="form-container">
+            <form id="translate-form">
+                <div>
+                    <label for="audio">Audio File (.wav):</label>
+                    <input type="file" id="audio" name="audio" accept="audio/wav" required>
+                </div>
+                <div>
+                    <label for="lyrics">Lyrics File (.txt):</label>
+                    <input type="file" id="lyrics" name="lyrics" accept="text/plain" required>
+                </div>
+                <div>
+                    <label for="access_code">Access Code:</label>
+                    <input type="text" id="access_code" name="access_code" required>
+                </div>
+                <button type="submit" id="submit-button">Translate</button>
+            </form>
+        </div>
+        <div id="status-message" style="display: none; margin-top: 1em;"></div>
+        <div id="loading-indicator" style="display: none;">Processing... Please wait. This may take several minutes.</div>
+        <div id="error-message" style="display: none;"></div>
+        <div id="result-display" style="display: none;"></div><hr style="margin-top: 30px;">
+        <p>Source code: <a href="https://github.com/BlindMuadDib/beethoven_music_translator" target="_blank">GitHub Repository</a></p>
+    </div>
+
+    <div id="player-ui-container">
+        <div id="lyric-tracker-container">
+            <canvas id="lyric-canvas">Your browser does not support canvas for lyric tracking.</canvas>
+        </div>
+        <div id="f0-tracker-container">
+            <canvas id="f0-canvas">Your browser does not support canvas for F0 tracking.</canvas>
+        </div>
+        <div id="audio-player-wrapper">
+            <h3 id="song-title" style="margin-top: 0; margin-bottom: 5px;">Song Title</h3>
+            <p id="song-metadata" style="font-size: 0.9em; color: #555; margin-bottom: 10px;">Artist - Album</p>
+            <audio id="audio-player" controls muted style="width: 100%;">
+                Your browser does not support the audio player.
+            </audio>
+            <div id="custom-controls" style="margin-top: 10px; display: flex; justify-content: space-around; align-items: center;">
+                <button id="player-play-pause">Play</button>
+                <button id="player-stop">Stop</button>
+                <button id="player-rewind" title="Rewind 5s">&laquo; 5s</button>
+                <button id="player-ffwd" title="Fast-Forward 5s">5s &raquo;</button>
+                <div style="display: flex; align-items: center;">
+                    <label for="volume-control" style="margin-right: 5px;">Volume:</label>
+                    <input type="range" id="volume-control" min="0" max="1" step="0.01" value="0" title="Volume">
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="/js/main.js"></script>
+</body>
+</html>

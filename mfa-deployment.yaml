@@ -1,0 +1,45 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mfa-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mfa-wrapper
+  template:
+    metadata:
+      labels:
+        app: mfa-wrapper
+    spec:
+      containers:
+        - name: mfa-wrapper-container
+          image: docker.io/blindmuaddib/align-endpoint:1.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 24725
+          resources:
+            requests:
+              cpu: "4"
+              memory: "16Gi"
+            limits:
+              cpu: "6"
+              memory: "24Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data/lyrics
+              subPath: lyrics
+            - name: shared-data
+              mountPath: /shared-data/separator_output
+              subPath: separator_output
+            - name: shared-data
+              mountPath: /shared-data/corpus
+              subPath: corpus
+            - name: shared-data
+              mountPath: /shared-data/aligned
+              subPath: aligned
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

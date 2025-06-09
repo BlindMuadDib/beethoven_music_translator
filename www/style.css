@@ -1,0 +1,89 @@
+body { font-family: sans-serif; text-align: center; padding: 20px; margin:0; }
+a { color: black; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.form-container { max-width: 500px; margin: 20px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
+.form-container div { margin-bottom: 15px; text-align: left; }
+.form-container label { display: block; margin-bottom: 5px; font-weight: bold; }
+.form-container input[type="file"],
+.form-container input[type="text"],
+.form-container button { width: 95%; padding: 10px; font-size: 1.1em; }
+.form-container button { width: 100%; cursor: pointer; background-color: #8A2BE2; color: white; border: none; border-radius: 4px; margin-top: 10px;}
+.form-container button:hover { background-color: #0056b3; }
+#loading-indicator { display: none; margin: 20px; color: green; font-weight: bold; }
+#error-message {display: none; margin: 20px; padding: 10px; background-color: #f8d7da; color: #DAA520; border: 1px solid #f5c6cb; border-radius: 4px; }
+#result-display { display: none; margin: 20px; padding: 15px; background-color: #e2e3e5; border: 1px solid #d6d8db; border-radius: 4px; text-align: left; white-space: pre-wrap; /* Preserve whitespace and wrap */ word-wrap: break-word; font-family: monospace; }
+.ul-no-style { list-style-type: none; padding: 0; }
+
+/* --- New Player UI Styles --- */
+#upload-ui-container, #player-ui-container {
+    display: none;
+}
+
+#player-ui-container {
+    flex-direction: column;
+    width: 100%;
+    max-width: 800px;
+    margin: 20px auto; /* Center it */
+    /* Calculate total height based on viewport */
+    height: calc(100vh - 70px); /* Full viewport height minus some padding */
+    border: 1px solid blue; /* For layout debugging */
+}
+
+#audio-player-wrapper { /* Changed from #audio-player-container to avoid conflict with JS var */
+    height: 120px; /* Inspired by YouTube Music player. Includes title, metadata, player, controls */
+    flex-shrink: 0; /* Prevent shrinking */
+    padding: 15px;
+    box-sizing: border-box;
+    background-color: #f0f0f0;
+    border: 1px solic #ccc;
+    border-radius: 8px;
+}
+
+#lyric-tracker-container {
+    height: 240px; /* 2 x audio player height (2*120px) */
+    flex-shrink: 0;
+    padding: 10px;
+    box-sizing: border-box;
+    border: 1px solid #ddd;
+    margin-bottom: 10px; /* Space between lyric and F0 */
+    background-color: #f9f9f9;
+    overflow: hidden; /* Ensure canvas content fits */
+    display: flex; /* For canvas centering if needed */
+    align-items: center;
+    justify-content: center;
+}
+
+#f0-tracker-container {
+    flex-grow: 1; /* Takes up remaining vertical space */
+    min-height: 150px; /* Ensure it has some minimum height if space is tight */
+    padding: 10px;
+    box-sizing: border-box;
+    border: 1px solid #ddd;
+    margin-bottom: 10px; /* Space between F0 and audio player */
+    background-color: #f9f9f9;
+    overflow: hidden; /* Important for canvas */
+    position: relative; /* For positioning elements inside if needed */
+}
+
+#lyric-canvas, #f0-canvas {
+    width: 100%;
+    height: 100%;
+    display: block; /* Removes extra space below canvas if it's inline */
+}
+
+/* Style the custom controls for a better look */
+#custom-controls button {
+    padding: 8px 12px;
+    font-size: 0.9em;
+    cursor: pointer;
+    background-color: #8A2BE2; /* Using the theme color */
+    color: white; /* Ensure text is visible */
+    border: none;
+    border-radius: 4px;
+}
+#custom-controls button:hover {
+    background-color: #7A1DD2; /* Darker shade */
+}
+#volume-control {
+    width: 100px;
+}
