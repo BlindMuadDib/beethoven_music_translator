@@ -26,7 +26,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: nginx-service
+            name: beethoven-service
             port:
               number: 80
   tls:
