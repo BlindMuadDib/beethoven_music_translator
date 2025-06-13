@@ -15,6 +15,13 @@ spec:
   - host: musictranslator.org
     http:
       paths:
+      - path: /api/files
+        pathType: Prefix
+        backend:
+          service:
+            name: beethoven-service
+            port:
+              number: 80
       - path: /api
         pathType: Prefix
         backend:

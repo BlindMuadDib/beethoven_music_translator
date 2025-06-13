@@ -35,7 +35,8 @@ export function pollJobStatus(job_id, onProgress) {
                 if (!response.ok) {
                     // Stop polling on server error
                     clearInterval(interval);
-                    return reject(new Error(`Error fetching results. Status: ${response.status}`));
+                    reject(new Error(`Error fetching results. Status: ${response.status}`));
+                    return;
                 }
 
                 const data = await response.json();

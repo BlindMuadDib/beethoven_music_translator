@@ -8,7 +8,7 @@ WORKDIR /app
 # Copy package.json and install dependencies
 COPY package.json ./
 COPY package-lock.json ./
-RUN npm install -g npm@11.4.1 && npm ci
+RUN npm install -g npm@11.4.2 && npm ci
 
 # Copy HTML, CSS and JS source files
 RUN mkdir -p /app/www

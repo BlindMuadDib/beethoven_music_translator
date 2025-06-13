@@ -64,8 +64,6 @@ export class LyricTracker {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.lyricData = mappedLyrics || [];
-        this.canvas.width = this.canvas.offsetWidth;
-        this.canvas.height = this.canvas.offsetHeight;
         this.update(0);
     }
 
@@ -75,7 +73,20 @@ export class LyricTracker {
      * @param {number} currentTime - The current time of the audio player.
      */
     update(currentTime) {
-        if (!this.ctx || !this.lyricData || this.lyricData.length === 0) {
+        if (!this.ctx) return;
+
+        // Check and set canvas dimensions on every update call
+        if (this.canvas.width !== this.canvas.offsetWidth || this.canvas.height !== this.canvas.offsetHeight) {
+            this.canvas.width = this.canvas.offsetWidth;
+            this.canvas.height = this.canvas.offsetHeight;
+        }
+
+        // If width or height is still 0, don't try to draw
+        if (!this.canvas.width || !this.canvas.height) {
+            return;
+        }
+
+        if (!this.lyricData || this.lyricData.length === 0) {
             if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             return;
         }
@@ -117,23 +128,40 @@ export class LyricTracker {
             currentX += this.ctx.measureText(wordObj.word || "").width + this.config.wordSpacing;
         });
 
-        // Bouncing Ball Logic
-        currentX = (this.canvas.width - totalLineWidth) / 2;
+        // --- Bouncing Ball Logic ---
+        let activeWord = null;
+        let lastSpokenWord = null;
 
-        const activeWord = lineObj.words.find(w => currentTime >= w.start && currentTime < w.end);
+        // Find the currently spoken word and the last spoken word
+        for (const word of lineObj.words) {
+            if (word.start !== null && word.end !== null) {
+                if (currentTime >= word.start && currentTime < word.end) {
+                    activeWord = word;
+                    // Found the active word, no need to look further
+                    break;
+                }
+                if (currentTime >= word.end) {
+                    lastSpokenWord = word;
+                }
+            }
+        }
 
-        if (activeWord) {
-            // Find its position to draw the ball
+        const wordToFollow = activeWord || lastSpokenWord;
+
+        if (wordToFollow) {
+            // Find the X-position of the word to follow
             let ballX = (this.canvas.width - totalLineWidth) /2;
             for (const word of lineObj.words) {
                 const wordWidth = this.ctx.measureText(word.word || "").width;
-                if (word === activeWord) {
+                if (word === wordToFollow) {
                     ballX += wordWidth / 2;
                     break;
                 }
                 ballX += wordWidth + this.config.wordSpacing;
             }
-            this.drawBall(ballX, textY - this.config.fontSize);
+
+            const ballY = textY - this.config.fontSize - this.config.ballRadius;
+            this.drawBall(ballX, ballY);
         }
     }
 

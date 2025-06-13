@@ -33,7 +33,7 @@ SERVE_AUDIO_DIR = '/shared-data/audio'
 
 # Store valid access codes
 
-VALID_ACCESS_CODES = set(['L4D5_R0CK_*0!L_&AND', '57TX_H9FK_77DBR7_QQ', 'NH009_GBF45_DBV88_NFD'])
+VALID_ACCESS_CODES = set([''])
 
 # --- Lazy Redis Connection and Queue  ---
 

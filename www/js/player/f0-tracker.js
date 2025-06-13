@@ -59,8 +59,6 @@ export class F0Tracker {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.f0Data = f0AnalysisData || {};
-        this.canvas.width = canvas.offsetWidth;
-        this.canvas.height = canvas.offsetHeight;
         this.update(0); // Initial draw
     }
 
@@ -71,6 +69,17 @@ export class F0Tracker {
     update(currentTime) {
         if (!this.ctx || !this.f0Data) return;
 
+        // This ensures we have the correct size once the browser has rendered it
+        if (this.canvas.width !== this.canvas.offsetWidth || this.canvas.height !== this.canvas.offsetHeight) {
+            this.canvas.width = this.canvas.offsetWidth;
+            this.canvas.height = this.canvas.offsetHeight;
+        }
+
+        // If width or height is still 0, don't try to draw
+        if (!this.canvas.width || !this.canvas.height) {
+            return;
+        }
+
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
         const f0Min = this.drawingF0Min;
@@ -79,6 +88,24 @@ export class F0Tracker {
         const drawAreaHeight = this.canvas.height - 20; // Padding at top/bottom for labels
         const yOffset = 10; // Start drawing Y-axis from this offset
 
+        // Draw Y-axis labels (F0 values) one time
+        this.ctx.fillStyle = 'black';
+        this.ctx.font = '10px sans-serif';
+        this.ctx.textAlign = 'right';
+        for (let i = 0; i < this.config.yAxisTicks; i++) {
+            const val = f0Min + (i / (this.config.yAxisTicks - 1)) * (f0Max - f0Min);
+            // Scale value to Y position: 0 Hz at bottom, max Hz at top of drawAreaHeight
+            const yPos = yOffset + drawAreaHeight - ((val - f0Min) / (f0Max - f0Min) * drawAreaHeight);
+
+            this.ctx.fillText(val.toFixed(0) + "Hz", this.config.legendWidth - 10, yPos + 3); // +3 for text alignment, Hz for clarity
+            // Draw light horizontal grid lines
+            this.ctx.strokeStyle = '#eee';
+            this.ctx.beginPath();
+            this.ctx.moveTo(this.config.legendWidth, yPos);
+            this.ctx.lineTo(this.canvas.width, yPos);
+            this.ctx.stroke();
+        }
+
         const numInstruments = this.config.activeInstruments.length;
         // Calculate horizontal spacing for balls within the drawAreaWidth
         const ballHorizontalSpacing = drawAreaWidth / (numInstruments > 1 ? numInstruments : 2); // Avoid division by 1 if only one instrument
@@ -86,57 +113,36 @@ export class F0Tracker {
         this.config.activeInstruments.forEach((instrumentName, index) => {
             const instrumentData = this.f0Data[instrumentName];
 
-            // Draw Y-axis labels (F0 values)
-            this.ctx.fillStyle = 'black';
-            this.ctx.font = '10px sans-serif';
-            this.ctx.textAlign = 'right';
-            for (let i = 0; i < this.config.yAxisTicks; i++) {
-                const val = f0Min + (i / (this.config.yAxisTicks - 1)) * (f0Max - f0Min);
-                // Scale value to Y position: 0 Hz at bottom, max Hz at top of drawAreaHeight
-                const yPos = yOffset + drawAreaHeight - ((val - f0Min) / (f0Max - f0Min) * drawAreaHeight);
+            // Draw Legend Text (instrument name)
+            this.ctx.textAlign = 'left';
 
-                this.ctx.fillText(val.toFixed(0) + "Hz", this.config.legendWidth - 10, yPos + 3); // +3 for text alignment, Hz for clarity
-                // Draw light horizontal grid lines
-                this.ctx.strokeStyle = '#eee';
-                this.ctx.beginPath();
-                this.ctx.moveTo(this.config.legendWidth, yPos);
-                this.ctx.lineTo(this.canvas.width, yPos);
-                this.ctx.stroke();
-            }
+            if (instrumentData && instrumentData.times && instrumentData.f0_values) {
+                const ballColor = this.config.instrumentColors[instrumentName] || this.config.instrumentColors.default;
+                this.ctx.fillStyle = ballColor;
+                this.ctx.fillText(instrumentName, 5, yOffset + 15 + index * 15); // Stagger legend items
 
-            // Draw instrument F0 balls and legend
-            this.config.activeInstruments.forEach((instrumentName, index) => {
-                const instrumentDataArray = this.f0Data[instrumentName];
+                const timeInterval = instrumentData.time_interval || 0.1; // Get specific or global time-interval
+                const currentF0 = getF0ValueAtTime(instrumentData.f0_values, instrumentData.times, currentTime, timeInterval);
 
-                if (instrumentDataArray && instrumentDataArray.times && instrumentDataArray.f0_values) {
-                    const timeInterval = instrumentDataArray.time_interval || this.f0Data.time_interval || 0.2; // Get specific or global time-interval
-                    const currentF0 = getF0ValueAtTime(instrumentDataArray.f0_values, instrumentDataArray.times, currentTime, timeInterval);
+                if (currentF0 !== null && currentF0 >= f0Min && currentF0 <= f0Max) {
+                    // Position ball horizontally
+                    const ballX = this.config.legendWidth + (index * ballHorizontalSpacing) + (ballHorizontalSpacing / 2);
+                    const normalizedY = (currentF0 - f0Min) / (f0Max - f0Min);
+                    // Position ball vertically based on F0 value
+                    const ballY = yOffset + drawAreaHeight - (normalizedY * drawAreaHeight);
 
-                    // Draw Legend Text (instrument name)
-                    this.ctx.textAlign = 'left';
-                    this.ctx.fillText(instrumentName, 5, yOffset + 15 + index * 15); // Stagger legend items
-
-                    if (currentF0 !== null && currentF0 >= f0Min && currentF0 <= f0Max) {
-                        // Position ball horizontally
-                        const ballX = this.config.legendWidth + (index * ballHorizontalSpacing) + (ballHorizontalSpacing / 2);
-                        const normalizedY = (currentF0 - f0Min) / (f0Max - f0Min);
-                        // Position ball vertically based on F0 value
-                        const ballY = yOffset + drawAreaHeight - (normalizedY * drawAreaHeight);
-
-                        this.ctx.beginPath();
-                        this.ctx.arc(ballX, ballY, this.config.ballRadius, 0, Math.PI * 2);
-                        const ballColor = this.config.instrumentColors[instrumentName] || this.config.instrumentColors.default;
-                        this.ctx.fillStyle = ballColor;
-                        this.ctx.fill();
-                        this.ctx.closePath();
-                    }
-                } else {
-                    // Draw legend even if data is missing
-                    this.ctx.fillStyle = this.config.instrumentColors.default;
-                    this.ctx.textAlign = 'left';
-                    this.ctx.fillText(instrumentName + " (no data)", 5, yOffset + 15 + index * 15);
+                    this.ctx.beginPath();
+                    this.ctx.arc(ballX, ballY, this.config.ballRadius, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.closePath();
                 }
-            })
+            } else {
+                // Draw legend even if data is missing
+                this.ctx.fillStyle = this.config.instrumentColors.default;
+                this.ctx.textAlign = 'left';
+                this.ctx.fillText(instrumentName + " (no data)", 5, yOffset + 15 + index * 15);
+            }
         });
     }
 }
+

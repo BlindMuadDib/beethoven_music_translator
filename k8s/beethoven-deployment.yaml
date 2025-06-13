@@ -17,6 +17,23 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: docker.io/blindmuaddib/beethoven:latest
+          image: docker.io/blindmuaddib/beethoven:0.0.7
           ports:
             - containerPort: 80
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data/audio
+              subPath: audio
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+
+
