@@ -12,7 +12,7 @@ from unittest.mock import patch, MagicMock, ANY
 from musictranslator.main import app
 
 # --- Constants and Global Mocks ---
-ACCESS_CODE = 'NH009_GBF45_DBV88_NFD'
+ACCESS_CODE = ''
 MOCK_VALID_ACCESS_CODES = {ACCESS_CODE}
 
 # --- Pytest Fixtures

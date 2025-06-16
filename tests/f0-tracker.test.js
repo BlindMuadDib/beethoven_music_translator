@@ -19,17 +19,17 @@ describe('getF0ValueAtTime (Pure Function)', () => {
 });
 
 describe('F0Tracker Class', () => {
-    let mockCanvas, mockCtx;
-    const mockF0AnalysisData = {
+    let canvas, mockCtx;
+    const f0Data = {
         // This is what the API returns under 'f0_analysis'
         vocals: {
-            times: [0.0, 0.1, 0.2],
-            f0_values: [220, 221, null],
+            times: [0.1, 0.2, 0.3],
+            f0_values: [220, null, 221],
             time_interval: 0.1
         },
         bass: {
-            times: [0.0, 0.1],
-            f0_values: [110, 112],
+            times: [0.1, 0.2, 0.3],
+            f0_values: [110,null, 66],
             time_interval: 0.1
         },
     };
@@ -46,42 +46,56 @@ describe('F0Tracker Class', () => {
             lineTo: jest.fn(),
             stroke: jest.fn(),
         };
-        mockCanvas = {
-            getContext: () => mockCtx,
-            width: 600,
-            height: 200,
+        canvas = {
+            getContext: jest.fn().mockReturnValue(mockCtx),
             offsetWidth: 600,
             offsetHeight: 200,
         };
     });
 
-    test('constructor should initialize canvas and draw initial state', () => {
-        const tracker = new F0Tracker(mockCanvas, mockF0AnalysisData);
-        expect(tracker.canvas).toBe(mockCanvas);
-        expect(tracker.ctx).toBe(mockCtx);
-        expect(tracker.f0Data).toEqual(mockF0AnalysisData);
-        expect(mockCtx.clearRect).toHaveBeenCalledWith(0, 0, 600, 200);
+    test('update() should draw the Y-axis and legend', () => {
+        const tracker = new F0Tracker(canvas, f0Data);
+        tracker.update(0.05);
+
+        // Assert that it draws the grid lines and labels
+        expect(mockCtx.fillText).toHaveBeenCalledWith(expect.stringMatching(/Hz/), expect.any(Number), expect.any(Number));
+        expect(mockCtx.lineTo).toHaveBeenCalled();
     });
 
-    test('update method should clear canvas and attempt to draw F0 data', () => {
-        const tracker = new F0Tracker(mockCanvas, mockF0AnalysisData);
-        mockCtx.clearRect.mockClear(); // Clear calls from constructor
+    test('update() should draw a ball for an active F0 value', () => {
+        const tracker = new F0Tracker(canvas, f0Data);
 
-        tracker.update(0.1);
-        expect(mockCtx.clearRect).toHaveBeenCalledWith(0, 0, 600, 200);
-        // We expect fillText to be called for legend and Y-axis labels
-        expect(mockCtx.fillText).toHaveBeenCalled();
-        // We expect arc and fill to be called if there's F0 data at currentTime
-        expect(mockCtx.arc).toHaveBeenCalled();
-        expect(mockCtx.fill).toHaveBeenCalled();
+        // Clear the mock history before calling the update test
+        mockCtx.arc.mockClear();
+        tracker.update(0.3);
+
+        // Assert that it draws the grid lines and labels
+        expect(mockCtx.fillText).toHaveBeenCalledWith(expect.stringMatching(/Hz/), expect.any(Number), expect.any(Number));
+        expect(mockCtx.lineTo).toHaveBeenCalled();
+        // Assert that the ball drawing function is called for the 'vocals' and 'bass' instruments
+        expect(mockCtx.arc).toHaveBeenCalledTimes(2);
     });
+
+    test('update() should NOT draw a ball if no F0 value is found for the current time', () => {
+        const tracker = new F0Tracker(canvas, f0Data);
+
+        // Clear the mock history before calling the update test
+        mockCtx.arc.mockClear();
+        tracker.update(0.2)
+
+        // Assert that it draws the grid lines and labels
+        expect(mockCtx.fillText).toHaveBeenCalledWith(expect.stringMatching(/Hz/), expect.any(Number), expect.any(Number));
+        expect(mockCtx.lineTo).toHaveBeenCalled();
+        // Assert that no ball is drawn
+        expect(mockCtx.arc).not.toHaveBeenCalled()
+    })
 
     test('update method should handle missing instrument data gracefully', () => {
         const incompleteF0Data = {
             vocals: { times: [0.1], f0_values: [220], time_interval: 0.1 }
             // bass data is missing
         };
-        const tracker = new F0Tracker(mockCanvas, incompleteF0Data);
+        const tracker = new F0Tracker(canvas, incompleteF0Data);
         mockCtx.fillText.mockClear();
 
         tracker.update(0.1);

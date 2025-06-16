@@ -254,7 +254,6 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
             cleanup_queue = Queue('cleanup_files', connection=job.connection)
             cleanup_queue.enqueue(
                 'musictranslator.main.cleanup_files',
-                audio_path=unique_audio_path,
                 lyrics_path=unique_lyrics_path,
                 alignment_path=alignment_json_path,
                 separate_path=separate_cleanup_path
@@ -527,16 +526,39 @@ def serve_file(unique_audio_filename):
         app.logger.error(f"Error serving file {unique_audio_filename}: {e}")
         return jsonify({"error": "Error serving file"}), 500
 
-def cleanup_files(audio_path, lyrics_path, alignment_path, separate_path):
+@app.route('/api/cleanup/<string:filename>', methods=['DELETE'])
+def delete_audio_file(filename):
+    """
+    Securely deletes a single processed audio file from the shared volume.
+    """
+    # Security: Sanitize the filename to prevent directory traversal attacks.
+    # secure_filename ensures the path is flat and safe.
+    safe_filename = secure_filename(filename)
+    if not safe_filename or safe_filename != filename:
+        return jsonify({"error": "Invalid filename provided"}), 400
+
+    file_path = os.path.join('/shared-data/audio', safe_filename)
+
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            app.logger.info(f"Client-triggered cleanup: Deleted {file_path}")
+            return jsonify({"message": f"Successfully deleted {safe_filename}"}), 200
+        except OSError as e:
+            app.logger.error({f"Error deleting file {file_path}: {e}"})
+            return jsonify({"error": "Failed to delete file on server"}), 500
+    else:
+        # It's okay if the file is already gone, return success.
+        app.logger.warning(f"Client requested cleanup for non-existent file: {file_path}")
+        return jsonify({"message": "File not found, but request is considered complete"}), 200
+
+def cleanup_files(lyrics_path, alignment_path, separate_path):
     """Cleanup files after final result is determined and sent to frontend"""
     app.logger.info(
-        "Cleaning up files: audio - %s, lyrics - %s, alignment - %s, stems - %s",
-        audio_path, lyrics_path,
+        "Cleaning up files: lyrics - %s, alignment - %s, stems - %s",
+        lyrics_path,
         alignment_path, separate_path
     )
-    if audio_path and os.path.exists(audio_path):
-        os.remove(audio_path)
-        app.logger.info("Deleted: %s", audio_path)
     if lyrics_path and os.path.exists(lyrics_path):
         os.remove(lyrics_path)
         app.logger.info("Deleted: %s", lyrics_path)

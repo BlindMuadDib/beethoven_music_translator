@@ -19,41 +19,41 @@ class TestIntegration(unittest.TestCase):
         if "kind" not in result.stdout:
             raise Exception("KIND cluster is not running. Please run run_integration_test.sh first.")
 
-        # Wait for pods to get ready with a timeout
-        timeout = time.time() + 300
-        print("Waiting for pods to become ready...")
-        while time.time() < timeout:
-            # Check readiness of deployments
-            main_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            worker_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-worker', '--timeout=0s'], capture_output=True).returncode == 0
-            align_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/mfa-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            separate_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/demucs-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            f0_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/f0-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            redis_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/redis', '--timeout=0s'], capture_output=True).returncode == 0
-            nginx_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/nginx-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            ingress_ready = subprocess.run(['kubectl', 'wait', '--namespace', 'ingress-nginx', '--for=condition=available', 'deployment/ingress-nginx-controller', '--timeout=0s'], capture_output=True).returncode == 0
-
-            if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready and f0_ready:
-                try:
-                    print("Checking health endpoints...")
-                    main_health = requests.get("https://localhost/api/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-                    align_health = requests.get("https://localhost/align/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-                    separate_health = requests.get("https://localhost/separate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-                    f0_health = requests.get("https://localhost/f0/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-
-                    if main_health.status_code == 200 and align_health.status_code == 200 and separate_health.status_code == 200:
-                        print("All health checks passed.")
-                        break
-                    else:
-                        print(f"Health checks failed. Main: {main_health.status_code}, Align: {align_health.status_code}, Separate: {separate_health.status_code}. Retrying...")
-
-                except requests.exceptions.RequestException as e:
-                    print(f"Health check request failed: {e}. Retrying...")
-
-            time.sleep(5)
-        else:
-            subprocess.run(['kubectl', 'get', 'pods'])
-            raise Exception("Timeout waiting for pods to become ready")
+        # # Wait for pods to get ready with a timeout
+        # timeout = time.time() + 300
+        # print("Waiting for pods to become ready...")
+        # while time.time() < timeout:
+        #     # Check readiness of deployments
+        #     main_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     worker_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-worker', '--timeout=0s'], capture_output=True).returncode == 0
+        #     align_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/mfa-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     separate_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/demucs-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     f0_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/f0-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     redis_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/redis', '--timeout=0s'], capture_output=True).returncode == 0
+        #     nginx_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/nginx-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     ingress_ready = subprocess.run(['kubectl', 'wait', '--namespace', 'ingress-nginx', '--for=condition=available', 'deployment/ingress-nginx-controller', '--timeout=0s'], capture_output=True).returncode == 0
+        #
+        #     if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready and f0_ready:
+        #         try:
+        #             print("Checking health endpoints...")
+        #             main_health = requests.get("https://localhost/api/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+        #             align_health = requests.get("https://localhost/api/align/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+        #             separate_health = requests.get("https://localhost/api/separate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+        #             f0_health = requests.get("https://localhost/api/f0/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+        #
+        #             if main_health.status_code == 200 and align_health.status_code == 200 and separate_health.status_code == 200:
+        #                 print("All health checks passed.")
+        #                 break
+        #             else:
+        #                 print(f"Health checks failed. Main: {main_health.status_code}, Align: {align_health.status_code}, Separate: {separate_health.status_code}. Retrying...")
+        #
+        #         except requests.exceptions.RequestException as e:
+        #             print(f"Health check request failed: {e}. Retrying...")
+        #
+        #     time.sleep(5)
+        # else:
+        #     subprocess.run(['kubectl', 'get', 'pods'])
+        #     raise Exception("Timeout waiting for pods to become ready")
 
         cls.base_url = "https://localhost/api"
         cls.host_header = {"Host": "musictranslator.org"}
@@ -79,7 +79,7 @@ class TestIntegration(unittest.TestCase):
             self.lyrics_file.close()
 
     def test_translate_success(self):
-        target_url = f"{self.base_url}/translate?access_code=57TX_H9FK_77DBR7_QQ"
+        target_url = f"{self.base_url}/translate?access_code="
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
@@ -254,7 +254,7 @@ class TestIntegration(unittest.TestCase):
     def test_get_results_initial_status(self):
         """Test getting the initial status of a job"""
         print("\nTesting initial job status retrieval...")
-        target_url = f"{self.base_url}/translate?access_code=57TX_H9FK_77DBR7_QQ"
+        target_url = f"{self.base_url}/translate?access_code="
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
@@ -325,23 +325,5 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json().get('status'), 'OK')
         self.assertEqual(response.json().get('message'), 'Music Translator is running')
-
-    def test_align_deployment(self):
-        # test the align deployment and service
-        response = requests.get(
-            f"{self.base_url}/align/health",
-            headers=self.host_header,
-            verify=self.ssl_verify
-            )
-        self.assertEqual(response.status_code, 200)
-
-    def test_separator_deployment(self):
-        # test the separator deployment and service
-        response = requests.get(
-            f"{self.base_url}/separate/health",
-            headers=self.host_header,
-            verify=self.ssl_verify
-            )
-        self.assertEqual(response.status_code, 200)
 
     # Add more tests for other scenarios

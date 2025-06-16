@@ -60,3 +60,20 @@ export function pollJobStatus(job_id, onProgress) {
         }, 5000); // Poll every 5 seconds (adjust as needed)
     });
 }
+
+/**
+ * Sends a request to the backend to delete a processed audio file.
+ * @param {string} filename - The unique filename of the audio to delete.
+ * @returns {Promise<void>}
+ */
+export async function deleteAudioFile(filename) {
+    // We don't need to do anything with the response unless an error occurs.
+    const response = await fetch(`/api/cleanup/${filename}`, {
+        method: 'DELETE',
+    });
+
+    if (!response.ok) {
+        // Log an error but don't block the user from navigating away.
+        console.error(`Failed to delete audio file ${filename} on the server.`);
+    }
+}

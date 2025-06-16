@@ -21,39 +21,61 @@ describe('findCurrentLineIndex', () => {
 
 // Test the CLASS
 describe('LyricTracker', () => {
-    let mockCanvas, mockCtx;
+    let canvas, mockCtx;
 
     beforeEach(() => {
         // Mock the canvas and its context
         mockCtx = {
             clearRect: jest.fn(),
             fillText: jest.fn(),
+            measureText:jest.fn(text=> ({ width: text.length * 10 })),
             beginPath: jest.fn(),
             arc: jest.fn(),
             fill: jest.fn(),
             closePath: jest.fn(),
         };
-        mockCanvas = {
-            getContext: () => mockCtx,
-            width: 500,
-            height: 100,
+        canvas = {
+            getContext: jest.fn().mockReturnValue(mockCtx),
             offsetWidth: 500,
             offsetHeight: 100,
         };
     });
 
-    test('constructor should initialize the canvas and context', () => {
-        const tracker = new LyricTracker(mockCanvas, []);
-        expect(tracker.canvas).toBe(mockCanvas);
-        expect(tracker.ctx).toBe(mockCtx);
-        // Check that it cleared the canvas on init
-        expect(mockCtx.clearRect).toHaveBeenCalledWith(0, 0, 500, 100);
+    const lyricData = [{
+        line_text: 'hello world',
+        words: [
+            { word: 'hello', start: 0.5, end: 1.0 },
+            { word: 'world', start: 1.2, end: 1.8 },
+        ],
+        line_start_time: 0.5,
+        line_end_time: 1.8
+    }]
+
+    test('update() should draw the current line of text', () => {
+        const tracker = new LyricTracker(canvas, lyricData);
+        tracker.update(0.7);
+
+        // Check that it cleared the canvas and draws the words
+        expect(mockCtx.clearRect).toHaveBeenCalled();
+        expect(mockCtx.fillText).toHaveBeenCalledWith('hello', expect.any(Number), expect.any(Number));
+        expect(mockCtx.fillText).toHaveBeenCalledWith('world', expect.any(Number), expect.any(Number));
     });
 
-    test('update method should call clearRect', () => {
-        const tracker = new LyricTracker(mockCanvas, []);
-        tracker.update(1.0); // Call the update method
-        // clearRect is called once in constructor, once in update
-        expect(mockCtx.clearRect).toHaveBeenCalledTimes(2);
+    test('update() should draw the bouncing call on the active word', () => {
+        const tracker = new LyricTracker(canvas, lyricData);
+        tracker.update(1.5); // Call the update method
+        // Assert that the ball drawing function is called
+        expect(mockCtx.arc).toHaveBeenCalled();
+    });
+
+    test('update() should handle time between words', () => {
+        const tracker = new LyricTracker(canvas, lyricData);
+        // This time is between "hello" and "world"
+        tracker.update(1.1);
+
+        // Assert that the text is still drawn
+        expect(mockCtx.fillText).toHaveBeenCalled();
+        // Assert that the ball is still drawn (in the "in-between" state)
+        expect(mockCtx.arc).toHaveBeenCalled();
     });
 });

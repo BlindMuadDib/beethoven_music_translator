@@ -15,7 +15,7 @@ from unittest.mock import patch, MagicMock
 from musictranslator import main
 from musictranslator.main import app
 
-ACCESS_CODE = 'NH009_GBF45_DBV88_NFD'
+ACCESS_CODE = ''
 mock_valid_codes = {ACCESS_CODE}
 
 class TestMain(unittest.TestCase):
@@ -558,13 +558,33 @@ class TestMain(unittest.TestCase):
         expected_final_result = {
             "mapped_result": mock_map.return_value,
             "f0_analysis": mock_req_f0.return_value,
-            "audio_url": "/files/jobid_audio.wav",
+            "audio_url": "api/files/jobid_audio.wav",
             "original_filename": "audio.wav"
         }
         self.assertEqual(result, expected_final_result)
 
         # Verify that the two Thread instances were created
         self.assertEqual(mock_thread_class.call_count, 2)
+
+    def test_delete_audio_file_success(self):
+        """Tests the DELETE /api/cleanup/<filename> endpoint."""
+        with patch('os.path.exists', return_value=True), \
+             patch('os.remove') as mock_remove:
+
+            safe_filename = "jobid_song.wav"
+            response = self.client.delete(f'/api/cleanup/{safe_filename}')
+
+            self.assertEqual(response.status_code, 200)
+            mock_remove.assert_called_once_with(f'/shared-data/audio/{safe_filename}')
+            self.assertIn(b"Successfully deleted", response.data)
+
+    def test_delete_audio_file_invalid_filename(self):
+        """Tests that the cleanup endpoint rejects directory traversal."""
+        # This filename attempts to go up a directory.
+        malicious_filename = "../../../etc/passwd"
+        response = self.client.delete(f'/api/cleanup/{malicious_filename}')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(b"Invalid filename", response.data)
 
 if __name__ == '__main__':
     unittest.main()

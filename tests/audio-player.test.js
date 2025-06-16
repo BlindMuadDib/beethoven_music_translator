@@ -1,22 +1,24 @@
-import { jest, describe, test, expect, beforeEach } from '@jest/globals';
+import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import { setupAudioPlayer } from '../www/js/player/audio-player.js'
 
 describe('Audio Player Module', () => {
     let audioPlayer;
     let playPauseButton;
     let stopButton;
+    let rewindButton;
+    let ffwdButton;
+    let volumeControl;
 
     beforeEach(() => {
         // Create a mock DOM for the player controls
         document.body.innerHTML = `
             <div>
                 <p id="song-title"></p>
-                <p id="song-metadata"></p>
                 <button id="player-play-pause"></button>
                 <button id="player-stop"></button>
                 <button id="player-rewind"></button>
                 <button id="player-ffwd"></button>
-                <input type="range" id="volume-control" />
+                <input type="range" id="volume-control" min="0" max="1" step="0.01" value="1" />
             </div>
         `;
 
@@ -24,7 +26,10 @@ describe('Audio Player Module', () => {
         audioPlayer = {
             scr: '',
             paused: true,
-            currentTime: 0,
+            currentTime: 10,
+            duration: 60,
+            volume: 1,
+            muted: false,
             play: jest.fn().mockImplementation(() => {
                 audioPlayer.paused = false;
                 // Manually trigger onplay event for testing
@@ -44,6 +49,16 @@ describe('Audio Player Module', () => {
 
         playPauseButton = document.getElementById('player-play-pause');
         stopButton = document.getElementById('player-stop');
+        rewindButton = document.getElementById('player-rewind');
+        ffwdButton = document.getElementById('player-ffwd');
+        volumeControl = document.getElementById('volume-control');
+
+        // Spy on window.confirm for the stop button test
+        jest.spyOn(window, 'confirm').mockReturnValue(true);
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks(); // Clean up spies
     });
 
     test('should set the audio source correctly', () => {
@@ -85,5 +100,33 @@ describe('Audio Player Module', () => {
         expect (onStopMock).toHaveBeenCalledTimes(1);
         // Check that the audio was paused
         expect(audioPlayer.pause).toHaveBeenCalled();
+    });
+
+    test('rewind and fast-forward buttons should adjust currentTime', () => {
+        setupAudioPlayer(audioPlayer, { audio_url: '' });
+
+        rewindButton.click();
+        expect(audioPlayer.currentTime).toBe(5); // 10 - 5 = 5
+
+        ffwdButton.click();
+        expect(audioPlayer.currentTime).toBe(10); // 5 + 5 = 10
+    });
+
+    test('volume slider should control audio volume and mute state', () => {
+        setupAudioPlayer(audioPlayer, { audio_url: '' });
+
+        // Simulate user dragging the slider
+        volumeControl.value = '0.5';
+        volumeControl.dispatchEvent(new Event('input')); // Use 'input' for sliders
+
+        expect(audioPlayer.volume).toBe(0.5);
+        expect(audioPlayer.muted).toBe(false);
+
+        // Simulate user muting
+        volumeControl.value = '0';
+        volumeControl.dispatchEvent(new Event('input'));
+
+        expect(audioPlayer.volume).toBe(0);
+        expect(audioPlayer.muted).toBe(true);
     });
 });
