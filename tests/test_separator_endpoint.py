@@ -100,7 +100,7 @@ def test_separate_endpoint_post_integration_with_files(client, real_audio_file):
     base_filename_no_ext = Path(audio_filename).stem
     expected_demucs_output_subdir = Path(configured_output_dir_str) / "htdemucs_6s" / base_filename_no_ext
 
-    response = client.post('/separate', json={"audio_filename": audio_filename})
+    response = client.post('/api/separate', json={"audio_filename": audio_filename})
     print(f"response: {response}")
 
     assert response.status_code == 200
@@ -114,7 +114,7 @@ def test_separate_endpoint_post_missing_filename(client, app_config):
     """
     Test /separate endpoint with no filename on the audio file.
     """
-    response = client.post('/separate', json={})
+    response = client.post('/api/separate', json={})
     print(f"response: {response}")
 
     assert response.status_code == 400
@@ -132,7 +132,7 @@ def test_separate_endpoint_post_demucs_error(client, dummy_audio_file, monkeypat
 
     monkeypatch.setattr("musictranslator.separator_wrapper.run_demucs", mock_run_demucs)
 
-    response = client.post('/separate', json={'audio_filename': audio_filename})
+    response = client.post('/api/separate', json={'audio_filename': audio_filename})
     print(f"response: {response}")
 
     assert response.status_code == 500
@@ -143,7 +143,7 @@ def test_separate_endpoint_post_filenotfound(client, app_config):
     """
     Test /separate endpoint when file is not found
     """
-    response = client.post('/separate', json={"audio_filename": "nonexistent-file.wav"})
+    response = client.post('/api/separate', json={"audio_filename": "nonexistent-file.wav"})
     print(f"response: {response}")
 
     assert response.status_code == 404
@@ -155,6 +155,6 @@ def test_health_check(client, app_config):
     """
     # app_config is used to ensure the app context is set up if it had any side effects,
     # though for a simple health check it might not be strictly necessary beyond client setup.
-    response = client.get('/separate/health')
+    response = client.get('/api/separate/health')
     assert response.status_code == 200
     assert response.get_json() == {"status": "OK"}

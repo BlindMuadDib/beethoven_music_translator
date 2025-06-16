@@ -19,7 +19,7 @@ from podman import PodmanClient
 def mfa_flask_container(request):
     client = None
     container = None
-    image_name = "localhost/blindmuaddib/align-endpoint-test:1"
+    image_name = "localhost/blindmuaddib/align-endpoint-test:latest"
     container_name = "align-e2e-test-container"
     port = 24725
 
@@ -153,7 +153,7 @@ def mfa_flask_container(request):
         print(f"Container '{container_name} started with ID: {container.id}, Memory limit: {mem_limit}")
 
         # Wait for the Flask server to start
-        health_check_url = f"http://localhost:{port}/align/health"
+        health_check_url = f"http://localhost:{port}/api/align/health"
         startup_timeout = 60
         start_time = time.time()
         server_ready = False
@@ -239,7 +239,7 @@ def mfa_flask_container(request):
             client.close()
 
 def test_align_endpoint(mfa_flask_container):
-    endpoint = f"{mfa_flask_container}/align"
+    endpoint = f"{mfa_flask_container}/api/align"
     audio_path = "/app/data/separator_output/htdemucs_6s/BloodCalcification-NoMore/vocals.wav"
     lyrics_path = "/app/data/lyrics/BloodCalcification-NoMore.txt"
 
@@ -277,7 +277,7 @@ def test_align_endpoint(mfa_flask_container):
         f"Path should end with {expected_output_base_name}.json, but got {alignment_file_path}"
 
 def test_align_endpoint_missing_files(mfa_flask_container):
-    endpoint = f"{mfa_flask_container}/align"
+    endpoint = f"{mfa_flask_container}/api/align"
     payload = {}
 
     response = requests.post(endpoint, json=payload, timeout=100)

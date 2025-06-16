@@ -19,7 +19,7 @@ import redis
 import rq
 from rq import Queue, get_current_job
 from rq.job import Job
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, send_from_directory
 from werkzeug.utils import secure_filename
 from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
@@ -27,6 +27,9 @@ from musictranslator.musicprocessing.transcribe import map_transcript
 from musictranslator.musicprocessing.F0 import request_f0_analysis
 
 app = Flask(__name__)
+
+# Define the directory where uploaded/processed files are stored for serving
+SERVE_AUDIO_DIR = '/shared-data/audio'
 
 # Store valid access codes
 
@@ -91,13 +94,15 @@ def teardown_redis(exception=None):
 
 # --- Define the Background Task ---
 
-def background_translation_task(unique_audio_path, unique_lyrics_path):
+def background_translation_task(unique_audio_path, unique_lyrics_path, unique_audio_filename, original_audio_filename):
     """
     This function runs in the background worker.
     It performs audio separation, alignment, and transcription mapping.
     Args:
         unique_audio_path (str): Path to the uniquely named uploaded audio file.
         unique_lyrics_path (str): Path to the uniquely named uploaded lyrics file.
+        unique_audio_filename (str): The filename after sanitized with uuid
+        original_audio_filename (str): The audio filename the user uploaded
     Returns:
         dict: The final mapped_result JSON.
     Raises:
@@ -239,7 +244,9 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
         # Final combined result structure
         final_job_result = {
             "mapped_result": mapped_result,
-            "f0_analysis": f0_analysis_result if f0_analysis_result else None
+            "f0_analysis": f0_analysis_result if f0_analysis_result else None,
+            "audio_url": f"api/files/{unique_audio_filename}",
+            "original_filename": original_audio_filename
         }
         logger.info("Background task completed successfully. Final result structure prepared.")
 
@@ -247,7 +254,6 @@ def background_translation_task(unique_audio_path, unique_lyrics_path):
             cleanup_queue = Queue('cleanup_files', connection=job.connection)
             cleanup_queue.enqueue(
                 'musictranslator.main.cleanup_files',
-                audio_path=unique_audio_path,
                 lyrics_path=unique_lyrics_path,
                 alignment_path=alignment_json_path,
                 separate_path=separate_cleanup_path
@@ -333,7 +339,7 @@ def validate_text(file_path):
         app.logger.error("Error validating text: %s", e)
         return False
 
-@app.route('/translate/health', methods=['GET'])
+@app.route('/api/translate/health', methods=['GET'])
 def health_check():
     """Health check endpoint using live test"""
     conn = get_redis_connection() # This attempts connection
@@ -353,7 +359,7 @@ def health_check():
         "redis_health_check": "connected" if redis_live_ok else "disconnected (live test)"
     }), status_code
 
-@app.route('/translate', methods=['POST'])
+@app.route('/api/translate', methods=['POST'])
 def translate():
     """
     Handles audio and lyrics translation requests
@@ -425,7 +431,7 @@ def translate():
         try:
             job = translation_queue.enqueue(
                 'musictranslator.main.background_translation_task',
-                args=(unique_audio_path, unique_lyrics_path),
+                args=(unique_audio_path, unique_lyrics_path, unique_audio_filename, original_audio_filename),
                 job_id=job_id,
                 job_timeout=5000
             )
@@ -444,7 +450,7 @@ def translate():
             os.remove(unique_lyrics_path)
         return jsonify({"error": "Internal server error processing request."}), 500
 
-@app.route('/results/<job_id>', methods=['GET'])
+@app.route('/api/results/<job_id>', methods=['GET'])
 def get_results(job_id):
     """Check the job status"""
     app.logger.info("Received request for results for job_id: %s", job_id)
@@ -507,16 +513,52 @@ def get_results(job_id):
             "message": "Internal server error checking job status."
         }), 500
 
-def cleanup_files(audio_path, lyrics_path, alignment_path, separate_path):
+@app.route('/api/files/<path:unique_audio_filename>')
+def serve_file(unique_audio_filename):
+    """Serves a file from the SERVE_AUDIO_DIR."""
+    app.logger.info(f"Attempting to serve file: {unique_audio_filename} from {SERVE_AUDIO_DIR}")
+    try:
+        return send_from_directory(SERVE_AUDIO_DIR, unique_audio_filename, as_attachment=False)
+    except FileNotFoundError:
+        app.logger.error(f"File not found: {unique_audio_filename} in {SERVE_AUDIO_DIR}")
+        return jsonify({"error": "File not found"}), 404
+    except Exception as e:
+        app.logger.error(f"Error serving file {unique_audio_filename}: {e}")
+        return jsonify({"error": "Error serving file"}), 500
+
+@app.route('/api/cleanup/<string:filename>', methods=['DELETE'])
+def delete_audio_file(filename):
+    """
+    Securely deletes a single processed audio file from the shared volume.
+    """
+    # Security: Sanitize the filename to prevent directory traversal attacks.
+    # secure_filename ensures the path is flat and safe.
+    safe_filename = secure_filename(filename)
+    if not safe_filename or safe_filename != filename:
+        return jsonify({"error": "Invalid filename provided"}), 400
+
+    file_path = os.path.join('/shared-data/audio', safe_filename)
+
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            app.logger.info(f"Client-triggered cleanup: Deleted {file_path}")
+            return jsonify({"message": f"Successfully deleted {safe_filename}"}), 200
+        except OSError as e:
+            app.logger.error({f"Error deleting file {file_path}: {e}"})
+            return jsonify({"error": "Failed to delete file on server"}), 500
+    else:
+        # It's okay if the file is already gone, return success.
+        app.logger.warning(f"Client requested cleanup for non-existent file: {file_path}")
+        return jsonify({"message": "File not found, but request is considered complete"}), 200
+
+def cleanup_files(lyrics_path, alignment_path, separate_path):
     """Cleanup files after final result is determined and sent to frontend"""
     app.logger.info(
-        "Cleaning up files: audio - %s, lyrics - %s, alignment - %s, stems - %s",
-        audio_path, lyrics_path,
+        "Cleaning up files: lyrics - %s, alignment - %s, stems - %s",
+        lyrics_path,
         alignment_path, separate_path
     )
-    if audio_path and os.path.exists(audio_path):
-        os.remove(audio_path)
-        app.logger.info("Deleted: %s", audio_path)
     if lyrics_path and os.path.exists(lyrics_path):
         os.remove(lyrics_path)
         app.logger.info("Deleted: %s", lyrics_path)

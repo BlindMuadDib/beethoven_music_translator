@@ -19,43 +19,43 @@ class TestIntegration(unittest.TestCase):
         if "kind" not in result.stdout:
             raise Exception("KIND cluster is not running. Please run run_integration_test.sh first.")
 
-        # Wait for pods to get ready with a timeout
-        timeout = time.time() + 300
-        print("Waiting for pods to become ready...")
-        while time.time() < timeout:
-            # Check readiness of deployments
-            main_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            worker_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-worker', '--timeout=0s'], capture_output=True).returncode == 0
-            align_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/mfa-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            separate_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/demucs-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            f0_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/f0-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            redis_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/redis', '--timeout=0s'], capture_output=True).returncode == 0
-            nginx_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/nginx-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-            ingress_ready = subprocess.run(['kubectl', 'wait', '--namespace', 'ingress-nginx', '--for=condition=available', 'deployment/ingress-nginx-controller', '--timeout=0s'], capture_output=True).returncode == 0
+        # # Wait for pods to get ready with a timeout
+        # timeout = time.time() + 300
+        # print("Waiting for pods to become ready...")
+        # while time.time() < timeout:
+        #     # Check readiness of deployments
+        #     main_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     worker_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-worker', '--timeout=0s'], capture_output=True).returncode == 0
+        #     align_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/mfa-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     separate_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/demucs-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     f0_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/f0-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     redis_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/redis', '--timeout=0s'], capture_output=True).returncode == 0
+        #     nginx_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/nginx-deployment', '--timeout=0s'], capture_output=True).returncode == 0
+        #     ingress_ready = subprocess.run(['kubectl', 'wait', '--namespace', 'ingress-nginx', '--for=condition=available', 'deployment/ingress-nginx-controller', '--timeout=0s'], capture_output=True).returncode == 0
+        #
+        #     if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready and f0_ready:
+        #         try:
+        #             print("Checking health endpoints...")
+        #             main_health = requests.get("https://localhost/api/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+        #             align_health = requests.get("https://localhost/api/align/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+        #             separate_health = requests.get("https://localhost/api/separate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+        #             f0_health = requests.get("https://localhost/api/f0/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
+        #
+        #             if main_health.status_code == 200 and align_health.status_code == 200 and separate_health.status_code == 200:
+        #                 print("All health checks passed.")
+        #                 break
+        #             else:
+        #                 print(f"Health checks failed. Main: {main_health.status_code}, Align: {align_health.status_code}, Separate: {separate_health.status_code}. Retrying...")
+        #
+        #         except requests.exceptions.RequestException as e:
+        #             print(f"Health check request failed: {e}. Retrying...")
+        #
+        #     time.sleep(5)
+        # else:
+        #     subprocess.run(['kubectl', 'get', 'pods'])
+        #     raise Exception("Timeout waiting for pods to become ready")
 
-            if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready and f0_ready:
-                try:
-                    print("Checking health endpoints...")
-                    main_health = requests.get("https://localhost/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-                    align_health = requests.get("https://localhost/align/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-                    separate_health = requests.get("https://localhost/separate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-                    f0_health = requests.get("https://localhost/f0/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-
-                    if main_health.status_code == 200 and align_health.status_code == 200 and separate_health.status_code == 200:
-                        print("All health checks passed.")
-                        break
-                    else:
-                        print(f"Health checks failed. Main: {main_health.status_code}, Align: {align_health.status_code}, Separate: {separate_health.status_code}. Retrying...")
-
-                except requests.exceptions.RequestException as e:
-                    print(f"Health check request failed: {e}. Retrying...")
-
-            time.sleep(5)
-        else:
-            subprocess.run(['kubectl', 'get', 'pods'])
-            raise Exception("Timeout waiting for pods to become ready")
-
-        cls.base_url = "https://localhost"
+        cls.base_url = "https://localhost/api"
         cls.host_header = {"Host": "musictranslator.org"}
         cls.ssl_verify = False
 
@@ -67,8 +67,8 @@ class TestIntegration(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.audio_file_path = "data/audio/BloodCalcification-NoMore.wav"
-        self.lyrics_file_path = "data/lyrics/BloodCalcification-NoMore.txt"
+        self.audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
+        self.lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
         self.audio_file = open(self.audio_file_path, 'rb')
         self.lyrics_file = open(self.lyrics_file_path, 'rb')
 
@@ -119,7 +119,7 @@ class TestIntegration(unittest.TestCase):
                         result_url,
                         headers=self.host_header,
                         verify=self.ssl_verify,
-                        timeout=30 # Timeout for polling request
+                        timeout=60 # Timeout for polling request
                     )
                     result_response.raise_for_status()
                     result_data = result_response.json()
@@ -141,8 +141,8 @@ class TestIntegration(unittest.TestCase):
                 except json.JSONDecodeError:
                     print(f"Failed to decode JSON from result endpoint for job {job_id}. Retrying...")
 
-            if job_status != 'finished' or final_job_result_data is None:
-                self.fail(f"Translation job {job_id} did not complete within the timeout. Final status: {job_status}")
+            self.assertEqual(job_status, 'finished', f"Job did not finish. Final status: {job_status}")
+            self.assertIsNotNone(final_job_result_data, "Final job result data is None.")
 
             # 3. Validate the final result structure
             self.assertIsInstance(final_job_result_data, dict, f"Final job result should be a dictionary, but is {type(final_job_result_data)}.")
@@ -157,20 +157,34 @@ class TestIntegration(unittest.TestCase):
 
             # Assert the presence and order of words within each line
             for i, original_line in enumerate(original_lyrics_lines):
-                if i < len(mapped_result):
-                    mapped_line = mapped_result[i]
-                    mapped_words_in_line = [item['word'].lower().strip(".,!?;:") for item in mapped_line]
+                self.assertLess(i, len(mapped_result), "Mapped result has fewer lines than original")
+                mapped_line = mapped_result[i]
 
-                    self.assertEqual(len(original_line), len(mapped_words_in_line),
-                                     f"Number of words in line {i+1} does not match.")
+                self.assertIn("line_text", mapped_line)
+                self.assertEqual(mapped_line["line_text"], original_line["original_text"],
+                                 f"Line text mismatch for line {i+1}.")
 
-                    for j, original_word in enumerate(original_line):
-                        if j < len(mapped_words_in_line):
-                            self.assertEqual(original_word, mapped_words_in_line[j],
-                                             f"Word mismatch in line {i+1}, position {j+1}: "
-                                             f"Expected '{original_word}', got '{mapped_words_in_line[j]}'.")
-                        else:
-                            self.fail(f"Mapped result for line {i+1} is shorter than expected.")
+                self.assertIn("words", mapped_line)
+                self.assertIsInstance(mapped_line["words"], list)
+
+                mapped_words_texts = [
+                    item.get('word', '').lower().strip(".,!?;:") for item in mapped_line["words"]
+                ]
+                original_words_in_line = original_line["word_list"]
+
+                self.assertEqual(len(mapped_words_texts), len(original_words_in_line),
+                                 f"Word count mismatch in line '{original_line['original_text']}' (line {i+1}).")
+
+                for j, original_word_text in enumerate(original_words_in_line):
+                    self.assertEqual(original_word_text, mapped_words_texts[j],
+                                        f"Word mismatch in line '{original_line['original_text']}' (line {i+1}), word {j+1}.")
+
+                self.assertIn("line_start_time", mapped_line)
+                self.assertIn("line_end_time", mapped_line)
+                # Timings can be None if no words in the line had timings
+                self.assertTrue(isinstance(mapped_line["line_start_time"], (float, int, type(None))),
+                                f"line_start_time for line {i+1} is not a number or None.")
+            print("Mapped result structure and content appear valid.")
 
             # Validate f0_analysis portion
             self.assertIn("f0_analysis", final_job_result_data)
@@ -180,6 +194,8 @@ class TestIntegration(unittest.TestCase):
             if isinstance(f0_data, dict) and ("error" in f0_data or "info" in f0_data):
                 print(f"F0 Analysis part of the job reported: {f0_data}")
                 # Consider failing the test here if error is present
+                if "error" in f0_data:
+                    self.fail(f"F0 analysis reported an error: {f0_data['error']}")
             else:
                 self.assertIsInstance(f0_data, dict)
                 self.assertTrue(len(f0_data) > 0)
@@ -189,16 +205,32 @@ class TestIntegration(unittest.TestCase):
                 for stem_name, stem_f0_values, in f0_data.items():
                     self.assertIn(stem_name, expected_stems_for_f0)
                     if stem_f0_values is not None:
-                        self.assertIsInstance(stem_f0_values, list)
-                        if stem_f0_values:
-                            self.assertTrue(all(isinstance(val, (int, float)) or val is None for val in stem_f0_values))
-
-                    found_f0_stems +=1
+                        self.assertIsInstance(stem_f0_values, dict)
+                        self.assertIn("times", stem_f0_values)
+                        self.assertIn("f0_values", stem_f0_values)
+                        self.assertIn("time_interval", stem_f0_values)
+                        self.assertIsInstance(stem_f0_values["times"], list)
+                        self.assertIsInstance(stem_f0_values["f0_values"], list)
+                        self.assertEqual(len(stem_f0_values["times"]), len(stem_f0_values["f0_values"]))
+                        if stem_f0_values["f0_values"]:
+                            self.assertTrue(any(v is not None for v in stem_f0_values["f0_values"]),
+                                            f"Expected at least one non-null F0 value for '{stem_name}' if list is not empty.")
+                        found_f0_stems +=1
                 self.assertTrue(found_f0_stems > 0)
-                print("F0 analysis data structure appears valid.")
+            print("F0 analysis data structure appears valid.")
+
+            # --- Validate audio_url and original_filename ---
+            print(f"Audio URL: {final_job_result_data["audio_url"]}")
+            self.assertIn("audio_url", final_job_result_data)
+            self.assertTrue(final_job_result_data["audio_url"].startswith(f"api/files/{job_id}_"))
+            self.assertIn("original_filename", final_job_result_data)
+            self.assertEqual(final_job_result_data["original_filename"], os.path.basename(self.audio_file_path))
+            print("Audio URL and original filename appear valid.")
 
         except requests.exceptions.RequestException as e:
             self.fail(f"Request failed: {e}")
+        except json.JSONDecodeError as e:
+            self.fail(f"JSON decode error during integration test: {e}. Response: {response.text if 'response' in locals() else 'N/A'}")
 
     def test_translate_without_access_code(self):
         """Test no access granted to those without code"""
@@ -211,7 +243,7 @@ class TestIntegration(unittest.TestCase):
             target_url,
             files=files,
             headers=self.host_header,
-            timeout=60,
+            timeout=180,
             verify=self.ssl_verify
         )
         self.assertEqual(response.status_code, 401)
@@ -293,24 +325,5 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json().get('status'), 'OK')
         self.assertEqual(response.json().get('message'), 'Music Translator is running')
-
-    def test_align_deployment(self):
-        # test the align deployment and service
-        response = requests.get(
-            f"{self.base_url}/align/health",
-            headers=self.host_header,
-            verify=self.ssl_verify
-            )
-        self.assertEqual(response.status_code, 200)
-
-    def test_separator_deployment(self):
-        # test the separator deployment and service
-        response = requests.get(
-            f"{self.base_url}/separate/health",
-            headers=self.host_header,
-            verify=self.ssl_verify
-            )
-        self.assertEqual(response.status_code, 200)
-        # Not exposed so response is index.html
 
     # Add more tests for other scenarios

@@ -1,6 +1,5 @@
 import os
 import logging
-import numpy as np
 from flask import Flask, request, jsonify
 from .fund_freq import analyze_fund_freq
 
@@ -10,11 +9,11 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = app.logger # Use Flask's logger
 
-@app.route('/analyze_f0', methods=['POST'])
+@app.route('/api/analyze_f0', methods=['POST'])
 def analyze_f0_endpoint():
     """Endpoint to analyze fundamental frequency for given audio stem paths.
     Expects JSON: {"stem_paths": {"instrument_name": "/path/to/audio.wav", ...}}
-    Returns JSON: {"instrument_name": [f0_values_list_or_null], ...}
+    Returns JSON: {"instrument_name": {"times": [...], "f0_values": [...] ... } or null, ...}
     """
     if not request.is_json:
         logger.warning("Request received is not JSON.")
@@ -42,16 +41,15 @@ def analyze_f0_endpoint():
 
         try:
             # fmin and fmax could be configurable per instrument type in the future
-            f0_array = analyze_fund_freq(audio_path)
+            f0_data = analyze_fund_freq(audio_path)
+            results[instrument] = f0_data
 
-            if f0_array is None:
-                logger.info(f"No F0 data returned for {instrument} (path: {audio_path}).")
-                results[instrument] = None
-            else:
-                # Convert numpy.ndarray to list and handle np.nan for JSON compatiblity
-                f0_list = [x if not np.isnan(x) else None for x in f0_array]
-                results[instrument] = f0_list
+            if f0_data:
                 logger.info(f"Successfully analyzed F0 for {instrument} (path: {audio_path}).")
+            else:
+                logger.info("No F0 data returned fr %s (path: %s).",
+                            instrument, audio_path)
+
         except Exception as e:
             logger.error(f"Error during F0 analysis for {instrument} (path: {audio_path}): {e}", exc_info=True)
             results[instrument] = None

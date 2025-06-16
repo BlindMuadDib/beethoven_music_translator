@@ -31,16 +31,21 @@ def analyze_fund_freq(audio_path, fmin=librosa.note_to_hz('C2'), fmax=librosa.no
             # print(f"Warning: Audio file {audio_path} loaded as empty.")
             return None
 
-        # For very short audio clips, pyin might bot be effective or might error.
-        # librosa.pyin requires minimum duration related to its largest period (1/fmin).
-        # A quick check: if duration is less than,
-        # say, twice the period of fmin, it might be problematic.
-        # For C2 (approx 65 Hz), period is ~0.015s. Let's say we need at least ~0.05s of audio.
-        # This threshold might need some adjustment.
-        min_duration_for_pyin = 2 / fmin
-        if librosa.get_duration(y=y, sr=sr) < min_duration_for_pyin:
-            # print(f"Warning: Audio file {audio_path} is too short for reliable F0 estimation.")
-            return None
+        # Default hop_length for librosa.pyin is frame_length // 4.
+        # Default frame_length is 2048. So, default hop_length = 512.
+        # It's good practice to be explicit if defaults are relied upon or use the actual value.
+        # For pyin, the effective hop_length of the output f0 series is determined by its internal processing,
+        # often aligning with standard STFT hop lengths (e.g., 512 for sr=22050, or 44100).
+        # Let's assume a common hop_length or retrieve if possible, for pyin it's often relateed to frame_length/4
+        # The librosa documentation doesn't explicitly state the hop_length of the output F0 series in samples,
+        # but it's tied to the frame processing. Typically, for sr=22050, hop_length=512 is common.
+        # For sr=44100, a hop_length for pyin might be 1024 or related to its internal windowing.
+        # Let's stick to a common default used in STFTs for time conversion, often 512.
+        # A more robust way would be to confirm librosa.pyin's effective hop length if it's not standard.
+        # For now, using a common STFT hop_length:
+        DUMMY_HOP_LENGTH = 512  # This is an assumption; pyin's hop may vary.
+                                # The actual time of resolution of pyin is typically around 10-30ms.
+                                # The output of pyin has one F0 value per frame.
 
         # pyin provides f0, voiced flag
         # f0 contains np.nan where the signal is unvoiced
@@ -52,7 +57,17 @@ def analyze_fund_freq(audio_path, fmin=librosa.note_to_hz('C2'), fmax=librosa.no
             # print("Warning: F0 analysis returned all NaN.")
             return None
 
-        return f0
+        # Generate timestamps for each f0 value.
+        # The number of frames in f0 corresponds to the number of analysis windows.
+        # The times correspond to the center of each analysis frame.
+        times = librosa.times_like(f0, sr=sr) # Preferred method of using times_like with f0 array directly
+
+        # Convert NaN to None for JSON compatibility
+        f0_list = [float(val) if not np.isnan(val) else None for val in f0]
+        times_list = [float(t) for t in times]
+
+        return {"times": times_list, "f0_values": f0_list, "time_interval": (times_list[1] - times_list[0]) if len(times_list) > 1 else 0.01}
+
     except FileNotFoundError:
         print(f"Error: Audio file not found at {audio_path}")
         return None

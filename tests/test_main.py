@@ -15,7 +15,7 @@ from unittest.mock import patch, MagicMock
 from musictranslator import main
 from musictranslator.main import app
 
-ACCESS_CODE = 'NH009_GBF45_DBV88_NFD'
+ACCESS_CODE = ''
 mock_valid_codes = {ACCESS_CODE}
 
 class TestMain(unittest.TestCase):
@@ -140,11 +140,11 @@ class TestMain(unittest.TestCase):
                 'audio': (audio_file, audio_filename),
                 'lyrics': (lyrics_file, lyrics_filename)
             }
-            return self.client.post('/translate', data=data, content_type='multipart/form-data', headers=headers)
+            return self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers=headers)
 
     def _get_results(self, job_id):
         """Helper to get results from the results endpoint."""
-        return self.client.get(f'/results/{job_id}')
+        return self.client.get(f'/api/results/{job_id}')
 
     # --- Test Cases ---
 
@@ -174,7 +174,7 @@ class TestMain(unittest.TestCase):
 
         expected_audio_path = f'/shared-data/audio/{self.test_job_id}_test_audio.wav'
         expected_lyrics_path = f'/shared-data/lyrics/{self.test_job_id}_test_lyrics.txt'
-        expected_task_args = (expected_audio_path, expected_lyrics_path)
+        expected_task_args = (expected_audio_path, expected_lyrics_path, f'{self.test_job_id}_test_audio.wav', 'test_audio.wav')
 
         self.assertEqual(task_actual_args, expected_task_args)
 
@@ -184,7 +184,7 @@ class TestMain(unittest.TestCase):
         """Tests /translate with missing audio file"""
         with open(self.test_lyrics_full_path, 'rb') as lyrics_file:
             data = {'lyrics': (lyrics_file, 'test_lyrics.txt')}
-            response = self.client.post('/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
+            response = self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.data), {'error': 'Missing audio or lyrics file.'})
 
@@ -192,7 +192,7 @@ class TestMain(unittest.TestCase):
         """Tests the /translate endpoint when lyrics file is missing"""
         with open(self.test_audio_full_path, 'rb') as audio_file:
             data = {'audio': (audio_file, 'test_audio.wav')}
-            response = self.client.post('/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
+            response = self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.data), {'error': 'Missing audio or lyrics file.'})
 
@@ -250,15 +250,33 @@ class TestMain(unittest.TestCase):
 
     def test_get_results_success(self):
         """Tests getting results for a successfully finished job."""
-        expected_mapped_result = [{"word": "example", "start": 0.1, "end": 0.5}]
+        expected_mapped_result = [{
+            'line_text': 'example line',
+            'words': [
+                {'text': 'example', 'start': 0.1, 'end': 0.5},
+                {'text': 'line', 'start': 0.6, 'end': 1.0}
+            ],
+            'line_start_time': 0.1,
+            'line_end_time': 1.0
+        }]
         expected_f0 = {
-            "vocals": [220.0, 220.1, None, 220.5],
-            "bass": [110.0, None, 110.2],
+            "vocals": {
+                "times": [0.01, 0.02, 0.03],
+                "f0_values": [220.0, 220.1, 220.5],
+                "time_interval": 0.01
+            },
+            "bass": {
+                "times": [0.01, 0.02, 0.03],
+                "f0_values": [110.0, None, 110.2],
+                "time_interval": 0.01
+            },
             "other": None # Example of a stem with no F0 or an error for that stem
         }
         expected_result = {
             "mapped_result": expected_mapped_result,
-            "f0_analysis": expected_f0
+            "f0_analysis": expected_f0,
+            "audio_url": "/files/some_job_id_song.wav",
+            "original_filename": "song.wav"
         }
         self.mock_job.is_finished = True
         self.mock_job.is_failed = False
@@ -331,7 +349,7 @@ class TestMain(unittest.TestCase):
         # Ensure the mock connection doesn't raise an error on ping
         self.mock_redis_conn.ping.side_effect = None
 
-        response = self.client.get('/translate/health')
+        response = self.client.get('/api/translate/health')
 
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.data)
@@ -342,14 +360,24 @@ class TestMain(unittest.TestCase):
 
     def test_get_results_success_f0_analysis_had_error(self):
         """Tests results when F0 analysis itself reported an error."""
-        expected_mapped_lyrics = [{"word": "another", "start": 1.0, "end": 1.5}]
+        expected_mapped_lyrics = [{
+            'line_text': 'example line',
+            'words': [
+                {'text': 'example', 'start': 0.1, 'end': 0.5},
+                {'text': 'line', 'start': 0.6, 'end': 1.0}
+            ],
+            'line_start_time': 0.1,
+            'line_end_time': 1.0
+        }]
         f0_error_report = {
             "error": "F0 service connection failed",
             "info": "F0 analysis did not complete successfully."
         }
         expected_final_job_result = {
             "mapped_result": expected_mapped_lyrics,
-            "f0_analysis": f0_error_report
+            "f0_analysis": f0_error_report,
+            "audio_url": "/files/some_job_id_song.wav",
+            "original_filename": "song.wav"
         }
 
         self.mock_job.is_finished = True
@@ -364,7 +392,15 @@ class TestMain(unittest.TestCase):
 
     def test_get_results_success_no_relevant_stems_for_f0(self):
         """Tests results when no relevant stems were found for F0 analysis."""
-        expected_mapped_lyrics = [{"word": "nostems", "start": 2.0, "end": 2.5}]
+        expected_mapped_lyrics = [{
+            'line_text': 'example line',
+            'words': [
+                {'text': 'example', 'start': 0.1, 'end': 0.5},
+                {'text': 'line', 'start': 0.6, 'end': 1.0}
+            ],
+            'line_start_time': 0.1,
+            'line_end_time': 1.0
+        }]
         f0_no_stems_info = {
             "info": "No relevant stems were submitted for F0 analysis."
         }
@@ -372,7 +408,9 @@ class TestMain(unittest.TestCase):
         # Then final_job_result will have it.
         expected_final_job_result = {
             "mapped_result": expected_mapped_lyrics,
-            "f0_analysis": f0_no_stems_info
+            "f0_analysis": f0_no_stems_info,
+            "audio_url": "/files/some_job_id_song.wav",
+            "original_filename": "song.wav"
         }
 
         self.mock_job.is_finished = True
@@ -390,7 +428,7 @@ class TestMain(unittest.TestCase):
         # Simulate connection error on ping
         self.mock_redis_conn.ping.side_effect = redis.exceptions.ConnectionError("Ping failed")
 
-        response = self.client.get('/translate/health')
+        response = self.client.get('/api/translate/health')
 
         self.assertEqual(response.status_code, 503)
         data = json.loads(response.data)
@@ -405,7 +443,7 @@ class TestMain(unittest.TestCase):
         patch_get_conn_fail = patch('musictranslator.main.get_redis_connection', return_value=None)
         mock_get_conn_fail = patch_get_conn_fail.start()
 
-        response = self.client.get('/translate/health')
+        response = self.client.get('/api/translate/health')
 
         self.assertEqual(response.status_code, 503)
         data = json.loads(response.data)
@@ -451,7 +489,15 @@ class TestMain(unittest.TestCase):
         mock_req_f0.return_value = {
             "vocals": [220.0], "bass": [110.0]
         }
-        mock_map.return_value = [{"word": "mapped_word", "start": 0.0, "end": 1.0}]
+        mock_map.return_value = [{
+            'line_text': 'example line',
+            'words': [
+                {'text': 'example', 'start': 0.1, 'end': 0.5},
+                {'text': 'line', 'start': 0.6, 'end': 1.0}
+            ],
+            'line_start_time': 0.1,
+            'line_end_time': 1.0
+        }]
 
         # --- Configure threading.Thread mock ---
         # This is the key part: make threads execute their targets immediately and synchonously
@@ -486,7 +532,12 @@ class TestMain(unittest.TestCase):
         mock_thread_class.side_effect = thread_constructor_side_effect
 
         # --- Call the function under test ---
-        result = main.background_translation_task("/fake/audio.wav", "/fake/lyrics.txt")
+        result = main.background_translation_task(
+            "/fake/audio.wav",
+            "/fake/lyrics.txt",
+            "jobid_audio.wav",
+            "audio.wav"
+        )
 
         # --- Assertions ---
         mock_split.assert_called_once_with("/fake/audio.wav")
@@ -505,13 +556,35 @@ class TestMain(unittest.TestCase):
         mock_map.assert_called_once_with("/fake/alignment.json", "/fake/lyrics.txt")
 
         expected_final_result = {
-            "mapped_result": [{"word": "mapped_word", "start": 0.0, "end": 1.0}],
-            "f0_analysis": {"vocals": [220.0], "bass": [110.0]}
+            "mapped_result": mock_map.return_value,
+            "f0_analysis": mock_req_f0.return_value,
+            "audio_url": "api/files/jobid_audio.wav",
+            "original_filename": "audio.wav"
         }
         self.assertEqual(result, expected_final_result)
 
         # Verify that the two Thread instances were created
         self.assertEqual(mock_thread_class.call_count, 2)
+
+    def test_delete_audio_file_success(self):
+        """Tests the DELETE /api/cleanup/<filename> endpoint."""
+        with patch('os.path.exists', return_value=True), \
+             patch('os.remove') as mock_remove:
+
+            safe_filename = "jobid_song.wav"
+            response = self.client.delete(f'/api/cleanup/{safe_filename}')
+
+            self.assertEqual(response.status_code, 200)
+            mock_remove.assert_called_once_with(f'/shared-data/audio/{safe_filename}')
+            self.assertIn(b"Successfully deleted", response.data)
+
+    def test_delete_audio_file_invalid_filename(self):
+        """Tests that the cleanup endpoint rejects directory traversal."""
+        # This filename attempts to go up a directory.
+        malicious_filename = "../../../etc/passwd"
+        response = self.client.delete(f'/api/cleanup/{malicious_filename}')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(b"Invalid filename", response.data)
 
 if __name__ == '__main__':
     unittest.main()

@@ -12,14 +12,16 @@ RETURNS:
 import subprocess
 import os
 import shutil
+import logging
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
+app.logger.setLevel(logging.INFO)
 
 CORPUS_DIR = "/shared-data/corpus"
 OUTPUT_DIR = "/shared-data/aligned"
 
-@app.route('/align', methods=['POST'])
+@app.route('/api/align', methods=['POST'])
 def align():
     """Main function of the wrapper"""
     app.logger.info("Starting MFA wrapper...")
@@ -38,6 +40,10 @@ def align():
     json_output_path = os.path.join(OUTPUT_DIR, f"{base_name}.json")
 
     try:
+        # Ensure clean state for every run
+        app.logger.info(f"Cleaning working directories: {CORPUS_DIR} and {OUTPUT_DIR}")
+        shutil.rmtree(CORPUS_DIR, ignore_errors=True)
+        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         os.makedirs(CORPUS_DIR, exist_ok=True)
         shutil.copy(vocals_stem_path, corpus_audio_path)
@@ -48,18 +54,22 @@ def align():
         app.logger.info(f"Copied lyrics to {corpus_lyrics_path}")
 
         # Validate the new input against the whole corpus for best results
+        app.logger.info("Attempting corpus validation")
         validation_result = subprocess.run(
-            ["mfa", "validate", CORPUS_DIR,
+            ["mfa", "validate",
+             "--clean", CORPUS_DIR,
              "english_us_arpa", "english_us_arpa"],
             capture_output=True, text=True, check=True
         )
 
         if validation_result.returncode != 0:
+            app.logger.info(f"Corpus validation failed. Error: {validation_result.stderr}")
             return jsonify({"error": f"Corpus validation failed: {validation_result.stderr}"}), 500
+        app.logger.info(f"Validation succeeded, validation result: {validation_result.stdout}. Attempting alignment")
 
         # Perform alignment, set output format to JSON
         alignment_result = subprocess.run(
-            ["mfa", "align",
+            ["mfa", "align", "--final_clean",
              "--output_format", "json",
              CORPUS_DIR,
             "english_us_arpa", "english_us_arpa", OUTPUT_DIR],
@@ -70,7 +80,7 @@ def align():
         if alignment_result.returncode != 0:
             app.logger.info("Retry alignment ...")
             retry_result = subprocess.run(
-                ["mfa", "align",
+                ["mfa", "align", "--final_clean",
                  "--output_format", "json",
                  CORPUS_DIR,
                 "english_us_arpa", "english_us_arpa", OUTPUT_DIR,
@@ -93,7 +103,7 @@ def align():
     except Exception as e: # pylint: disable=broad-except
         return jsonify({'error': f"An unexpected error occurred: {str(e)}"}), 500
 
-@app.route('/align/health', methods=['GET'])
+@app.route('/api/align/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "OK"}), 200
 

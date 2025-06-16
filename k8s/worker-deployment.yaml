@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: worker
-        image: blindmuaddib/music-translator:0.0.5
+        image: blindmuaddib/music-translator:0.0.7
         command: ["python", "worker.py"]
         env:
           - name: REDIS_HOST

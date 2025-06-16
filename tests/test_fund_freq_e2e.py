@@ -209,16 +209,24 @@ class TestFundFreqServiceE2EPodman(unittest.TestCase):
 
         for instrument, f0_data in results.items():
             self.assertIn(instrument, stem_paths_payload.keys(), f"Unexpected instrument '{instrument}' in results")
+
+            # Assert that the result for each stem is either a dictionary or None
+            self.assertTrue(isinstance(f0_data, (dict, type(None))),
+                            f"F0 data for '{instrument}' should be a dict or None, but was {type(f0_data)}")
+
             if f0_data is not None:
-                self.assertIsInstance(f0_data, list, f"F0 data for '{instrument}' should be a list or null")
-                if f0_data:
-                    self.assertTrue(
-                        all(isinstance(x, (int, float)) or x is None for x in f0_data),
-                        f"F0 list for '{instrument}' contains non-numeric/non-null data: {f0_data[:10]}"
-                    )
-                    print(f"Instrument: {instrument}, F0 frames: {len(f0_data)}, First few values: {f0_data[:5]}")
-                else:
-                    print(f"Instrument: {instrument}, F0 frames: 0 (empty list received)")
+                # If it's a dictionary, assert its structure
+                print(f"Instrument: {instrument } -> SUCCESS (Received dict)")
+                self.assertIn("times", f0_data)
+                self.assertIn("f0_values", f0_data)
+                self.assertIn("time_interval", f0_data)
+                self.assertIsInstance(f0_data["times"], list)
+                self.assertIsInstance(f0_data["f0_values"], list)
+                self.assertEqual(len(f0_data["times"]), len(f0_data["f0_values"]))
+                if f0_data["f0_values"]:
+                    self.assertTrue(any(v is not None for v in f0_data["f0_values"]),
+                                    f"Expected at least one non-null F0 value for '{instrument}'")
+
             else:
                 print(f"Instrument: {instrument}, F0 data: None")
 

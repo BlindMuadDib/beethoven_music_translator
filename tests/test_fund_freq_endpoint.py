@@ -66,7 +66,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
 
     def test_health_check(self):
         """Test the /f0/health endpoint."""
-        response = self.client.get('/f0/health')
+        response = self.client.get('/api/f0/health')
         self.assertEqual(response.status_code, 200)
         json_data = response.get_json()
         self.assertEqual(json_data['status'], 'OK')
@@ -82,7 +82,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
                 "other": self.other_file
             }
         }
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 200, f"Response data: {response.data.decode()}")
         results = response.get_json()
 
@@ -91,11 +91,50 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
         self.assertIn("guitar", results)
         self.assertIn("piano", results)
         self.assertIn("other", results)
-        self.assertIsInstance(results["vocals"], list, "Vocals F0 should be a list or null")
-        self.assertIsInstance(results["bass"], list, "Bass F0 should be a list or null")
-        self.assertIsInstance(results["guitar"], list, "Guitar F0 should be a list or null")
-        self.assertIsInstance(results["piano"], list, "Piano F0 should be a list or null")
-        self.assertIsInstance(results["other"], list, "Other F0 should be a list or null")
+        self.assertIsInstance(results["vocals"], dict, "Vocals F0 should be a dict")
+        self.assertIsInstance(results["bass"], dict, "Bass F0 should be a dict")
+        self.assertIsInstance(results["guitar"], dict, "Guitar F0 should be a dict")
+        self.assertIsInstance(results["piano"], dict, "Piano F0 should be a dict")
+        self.assertIsInstance(results["other"], dict, "Other F0 should be a dict")
+
+        # Check that the dictionary keys are present
+        self.assertIn("times", results["vocals"])
+        self.assertIn("times", results["bass"])
+        self.assertIn("times", results["guitar"])
+        self.assertIn("times", results["piano"])
+        self.assertIn("times", results["other"])
+
+        self.assertIn("f0_values", results["vocals"])
+        self.assertIn("f0_values", results["bass"])
+        self.assertIn("f0_values", results["guitar"])
+        self.assertIn("f0_values", results["piano"])
+        self.assertIn("f0_values", results["other"])
+
+        vocals_result = results["vocals"]
+        bass_result = results["bass"]
+        guitar_result = results["guitar"]
+        piano_result = results["piano"]
+        other_result = results["other"]
+
+        # Validate the ditionary structure
+        self.assertIsInstance(vocals_result["times"], list)
+        self.assertIsInstance(bass_result["times"], list)
+        self.assertIsInstance(guitar_result["times"], list)
+        self.assertIsInstance(piano_result["times"], list)
+        self.assertIsInstance(other_result["times"], list)
+
+        self.assertIsInstance(vocals_result["f0_values"], list)
+        self.assertIsInstance(bass_result["f0_values"], list)
+        self.assertIsInstance(guitar_result["f0_values"], list)
+        self.assertIsInstance(piano_result["f0_values"], list)
+        self.assertIsInstance(other_result["f0_values"], list)
+
+        # Assert F0 has values
+        self.assertTrue(any(f is not None for f in vocals_result["f0_values"]), "Expected some values for f0")
+        self.assertTrue(any(f is not None for f in bass_result["f0_values"]), "Expected some values for f0")
+        self.assertTrue(any(f is not None for f in guitar_result["f0_values"]), "Expected some values for f0")
+        self.assertTrue(any(f is not None for f in piano_result["f0_values"]), "Expected some values for f0")
+        self.assertTrue(any(f is not None for f in other_result["f0_values"]), "Expected some values for f0")
 
         # Check that there's some valid (non-None) data if a list is returned
         if results["vocals"]:
@@ -110,18 +149,18 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
             self.assertTrue(any(f is not None for f in results["other"]), "Expected some F0 values for other")
 
     def test_analyze_f0_silent_stem(self):
-        """Test a stem that is silen (should result in null/None F0 data)."""
-        payload = {"stem_paths": {"ambience": self.silent_file}}
-        response = self.client.post('/analyze_f0', json=payload)
+        """Test a stem that is silent (should result in null/None F0 data)."""
+        payload = {"stem_paths": {"vocals": self.silent_file}}
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 200)
         results = response.get_json()
-        self.assertIn("ambience", results)
-        self.assertIsNone(results["ambience"], "F0 for a silent stem should be null")
+        self.assertIn("vocals", results)
+        self.assertIsNone(results["vocals"], "F0 for a silent stem should be null")
 
     def test_analyze_f0_non_existent_stem(self):
         """Test a stem path that does not exist."""
         payload = {"stem_paths": {"guitar": self.non_existent_file}}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 200)
         results = response.get_json()
         self.assertIn("guitar", results)
@@ -130,7 +169,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
     def test_analyze_f0_empty_stem_paths(self):
         """Test with an empty stem_paths dictionary."""
         payload = {"stem_paths": {}}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 200)
         results = response.get_json()
         self.assertEqual(results, {})
@@ -138,7 +177,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
     def test_analyze_f0_missing_stem_paths_key(self):
         """Test request body missing the 'stem_paths' key."""
         payload = {"some_other_key": "value"}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 400)
         error_data = response.get_json()
         self.assertIn("error", error_data)
@@ -147,7 +186,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
     def test_analyze_f0_stem_paths_not_a_dict(self):
         """Test when 'stem_paths' is not a dictionary."""
         payload = {"stem_paths": "not_a_dictionary"}
-        response = self.client.post('/analyze_f0', json=payload)
+        response = self.client.post('/api/analyze_f0', json=payload)
         self.assertEqual(response.status_code, 400)
         error_data = response.get_json()
         self.assertIn("error", error_data)
@@ -155,7 +194,7 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
 
     def test_analyze_f0_not_json_request(self):
         """Test sending a request that is not application/json."""
-        response = self.client.post('/analyze_f0', data="this is not json")
+        response = self.client.post('/api/analyze_f0', data="this is not json")
         self.assertEqual(response.status_code, 415)
         error_data = response.get_json()
         self.assertIn("error", error_data)

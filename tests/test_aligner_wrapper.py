@@ -76,7 +76,7 @@ class TestMFAWrapper(unittest.TestCase):
             MagicMock(returncode=0, stdout='', stderr='')
         ]
 
-        response = self.client.post('/align', json={
+        response = self.client.post('/api/align', json={
             'vocals_stem_path': self.test_audio_full_path,
             'lyrics_path': self.test_lyrics_full_path
         })
@@ -112,7 +112,7 @@ class TestMFAWrapper(unittest.TestCase):
         )
 
     def test_align_missing_files(self):
-        response = self.client.post('/align', json={})
+        response = self.client.post('/api/align', json={})
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.data.decode('utf-8'))
         self.assertEqual(data, {'error': 'vocals_stem_path or lyrics_file_path missing'})
@@ -134,7 +134,7 @@ class TestMFAWrapper(unittest.TestCase):
             MagicMock(returncode=1, stderr="Retry alignment failed")
         ]
 
-        response = self.client.post('/align', json={
+        response = self.client.post('/api/align', json={
             'vocals_stem_path': self.test_audio_full_path,
             'lyrics_path': self.test_lyrics_full_path
         })
@@ -196,7 +196,7 @@ class TestMFAWrapper(unittest.TestCase):
             MagicMock(returncode=0, stdout='', stderr='')
         ]
 
-        response = self.client.post('/align', json={
+        response = self.client.post('/api/align', json={
             'vocals_stem_path': self.test_audio_full_path,
             'lyrics_path': self.test_lyrics_full_path
         })
@@ -254,7 +254,7 @@ class TestMFAWrapper(unittest.TestCase):
         # Mock failed first attempt, failed retry
         mock_subprocess_run.side_effect = MagicMock(returncode=1, stderr="Corpus validation failed", stdout='')
 
-        response = self.client.post('/align', json={
+        response = self.client.post('/api/align', json={
             'vocals_stem_path': self.test_audio_full_path,
             'lyrics_path': self.test_lyrics_full_path
         })
@@ -281,7 +281,7 @@ class TestMFAWrapper(unittest.TestCase):
             capture_output=True, text=True, check=True)
 
     def test_health_check(self):
-        response = self.client.get('/align/health')
+        response = self.client.get('/api/align/health')
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.data.decode('utf-8'))
         self.assertEqual(data, {"status": "OK"})
