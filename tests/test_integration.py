@@ -219,6 +219,35 @@ class TestIntegration(unittest.TestCase):
                 self.assertTrue(found_f0_stems > 0)
             print("F0 analysis data structure appears valid.")
 
+            # --- Validate volume_analysis portion ---
+            self.assertIn("volume_analysis", final_job_result_data)
+            volume_data = final_job_result_data["volume_analysis"]
+            print("Validating volume_analysis structure ...")
+
+            if isinstance(volume_data, dict) and ("error" in volume_data or "info" in volume_data):
+                self.fail(f"Volume analysis reported an error or info message: {volume_data}")
+            else:
+                self.assertIsInstance(volume_data, dict)
+                self.assertIn("overall_rms", volume_data)
+                self.assertIn("instruments", volume_data)
+
+                # Validate overall_rms structure
+                self.assertIsInstance(volume_data["overall_rms"], list)
+                if volume_data["overall_rms"]:
+                    self.assertIsInstance(volume_data["overall_rms"][0], list)
+                    self.assertEqual(len(volume_data["overall_rms"][0]), 2)
+
+                # Validate instruments structure
+                self.assertIsInstance(volume_data["instruments"], dict)
+                self.assertTrue(len(volume_data["instruments"]) > 0, "Instruments dictionary should not be empty.")
+                for stem_name, stem_rms_values in volume_data["instruments"].items():
+                    self.assertIn("rms_values", stem_rms_values)
+                    self.assertIsInstance(stem_rms_values["rms_values"], list)
+                    if stem_rms_values["rms_values"]:
+                        self.assertIsInstance(stem_rms_values["rms_values"][0], list)
+                        self.assertEqual(len(stem_rms_values["rms_values"][0]), 2)
+                print("Volume analysis data structure appears valid.")
+
             # --- Validate audio_url and original_filename ---
             print(f"Audio URL: {final_job_result_data["audio_url"]}")
             self.assertIn("audio_url", final_job_result_data)

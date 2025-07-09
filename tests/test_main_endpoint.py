@@ -146,6 +146,14 @@ def test_translate_endpoint_post_success(
         "other": None # Example of a stem with no F0 or an error for that stem
     }
 
+    mock_volume_analysis_data = {
+        "overall_rms": [[0.0, 0.5], [0.02, 0.6]],
+        "instruments": {
+            "vocals": {"rms_values": [[0.0, 0.4], [0.02, 0.45]]},
+            "bass": {"rms_values": [[0.0, 0.3], [0.02, 0.35]]}
+        }
+    }
+
     data = {
         'audio': (audio_data, os.path.basename(audio_file_path)),
         'lyrics': (lyrics_data, os.path.basename(lyrics_file_path)),
@@ -183,6 +191,7 @@ def test_translate_endpoint_post_success(
     expected_final_result = {
         "mapped_result": expected_mapped_results,
         "f0_analysis": mock_f0_analysis_data,
+        "volume_analysis": mock_volume_analysis_data,
         "audio_url": expected_audio_url,
         "original_filename": "BloodCalcification-SkinDeep.wav"
     }
@@ -213,7 +222,7 @@ def test_translate_endpoint_post_success(
     mock_job.is_failed = False
     mock_job.result = expected_final_result
 
-    response_results = client.get(f'/results/{enqueued_job_id}')
+    response_results = client.get(f'/api/results/{enqueued_job_id}')
 
     assert response_results.status_code == 200, f"Response data: {response_results.data.decode()}"
     response_results_json = response_results.get_json()
@@ -221,6 +230,45 @@ def test_translate_endpoint_post_success(
     assert response_results_json["result"] == expected_final_result
 
     mock_rq_components['job_fetch'].assert_called_once_with(enqueued_job_id, connection=mock_rq_components['redis_conn'])
+
+def test_get_results_success_volume_error(
+    client: FlaskClient,
+    mock_rq_components: dict,
+    mock_uuid_generator: dict
+):
+    """Tests /results when the volume analysis part of the job reported an error."""
+    job_id = mock_uuid_generator['test_job_id']
+    mock_job = mock_rq_components['job']
+
+    expected_mapped_results = [{'line_text': 'example_line'}]
+    volume_error_report = {
+        "error": "Volume service timeout",
+        "info": "Volume analysis did not complete."
+    }
+
+    expected_final_result_with_volume_error = {
+        "mapped_result": expected_mapped_results,
+        "f0_analysis": {}, # Assume f0 was fine
+        "volume_analysis": volume_error_report,
+        "audio_url": "/files/some_audio.wav",
+        "original_filename": "audio.wav"
+    }
+
+    mock_job.id = job_id
+    mock_job.is_finished = True
+    mock_job.is_failed = False
+    mock_job.result = expected_final_result_with_volume_error
+
+    response_results = client.get(f'/api/results/{job_id}')
+    assert response_results.status_code == 200
+    response_results_json = response_results.get_json()
+    assert response_results_json == {
+        "status": "finished",
+        "result": expected_final_result_with_volume_error
+    }
+    mock_rq_components['job_fetch'].assert_called_once_with(
+        job_id, connection=mock_rq_components['redis_conn']
+    )
 
 def test_get_results_success_f0_error(
     client: FlaskClient,
@@ -244,9 +292,19 @@ def test_get_results_success_f0_error(
         "error": "F0 service timeout during processing.",
         "info": "F0 analysis did not complete successfully."
     }
+    expected_volume_results = {
+        "overall_rms": [[0.0, 0.5], [0.02, 0.6]],
+        "instruments": {
+            "vocals": {"rms_values": [[0.0, 0.4], [0.02, 0.45]]},
+            "bass": {"rms_values": [[0.0, 0.3], [0.02, 0.35]]}
+        }
+    }
     expected_final_result_with_f0_error = {
         "mapped_results": expected_mapped_results,
-        "f0_analysis": f0_error_report
+        "f0_analysis": f0_error_report,
+        "volume_analysis": expected_volume_results,
+        "audio_url": "/files/some_audio.wav",
+        "original_filename": "audio.wav"
     }
 
     mock_job.id = job_id # Ensure fetched job ID matches
@@ -254,7 +312,7 @@ def test_get_results_success_f0_error(
     mock_job.is_failed = False
     mock_job.result = expected_final_result_with_f0_error
 
-    response_results = client.get(f'/results/{job_id}')
+    response_results = client.get(f'/api/results/{job_id}')
     assert response_results.status_code == 200
     response_results_json = response_results.get_json()
     assert response_results_json == {"status": "finished", "result": expected_final_result_with_f0_error}
@@ -275,7 +333,7 @@ def test_get_results_pending_with_progress(
     mock_job.get_status.return_value = 'started'
     mock_job.meta = {'progress_stage': 'stem_processing'}
 
-    response = client.get(f'/results/{job_id}')
+    response = client.get(f'/api/results/{job_id}')
     assert response.status_code == 202
     expected_response_data = {
         "status": "started",

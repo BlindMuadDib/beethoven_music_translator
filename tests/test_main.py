@@ -272,9 +272,18 @@ class TestMain(unittest.TestCase):
             },
             "other": None # Example of a stem with no F0 or an error for that stem
         }
+        expected_volume = {
+            "overall_rms": [[0.0, 0.15], [0.02, 0.18]],
+            "instruments": {
+                "vocals": {"rms_values": [[0.0, 0.2], [0.02, 0.22]]},
+                "bass": {"rms_values": [[0.0, 0.1], [0.02, 0.11]]}
+            }
+        }
+
         expected_result = {
             "mapped_result": expected_mapped_result,
             "f0_analysis": expected_f0,
+            "volume_analysis": expected_volume,
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
         }
@@ -358,6 +367,40 @@ class TestMain(unittest.TestCase):
         self.mock_get_conn.assert_called() # Check if connection was attempted
         self.mock_redis_conn.ping.assert_called_once() # Check ping was attempted
 
+    def test_get_results_success_volume_analysis_had_error(self):
+        """Tests results when Volume analysis itself reported an error."""
+        expected_mapped_lyrics = [{
+            'line_text': 'example line',
+            'words': [
+                {'text': 'example', 'start': 0.1, 'end': 0.5},
+                {'text': 'line', 'start': 0.6, 'end': 1.0}
+            ],
+            'line_start_time': 0.1,
+            'line_end_time': 1.0
+        }]
+        volume_error_report = {
+            "error": "Volume service connection failed",
+            "info": "Volume analysis did not complete successfully."
+        }
+
+        expected_final_job_result = {
+            "mapped_result": expected_mapped_lyrics,
+            "f0_analysis": {}, # Assume f0 was fine
+            "volume_analysis": volume_error_report,
+            "audio_url": "/files/some_job_id_song.wav",
+            "original_filename": "song.wav"
+        }
+
+        self.mock_job.is_finished = True
+        self.mock_job.is_failed = False
+        self.mock_job.result = expected_final_job_result
+
+        response = self._get_results(self.test_job_id)
+        self.assertEqual(response.status_code, 200)
+        response_json = json.loads(response.data)
+        self.assertEqual(response_json["status"], "finished")
+        self.assertDictEqual(response_json["result"], expected_final_job_result)
+
     def test_get_results_success_f0_analysis_had_error(self):
         """Tests results when F0 analysis itself reported an error."""
         expected_mapped_lyrics = [{
@@ -373,9 +416,18 @@ class TestMain(unittest.TestCase):
             "error": "F0 service connection failed",
             "info": "F0 analysis did not complete successfully."
         }
+        expected_volume = {
+            "overall_rms": [[0.0, 0.15], [0.02, 0.18]],
+            "instruments": {
+                "vocals": {"rms_values": [[0.0, 0.2], [0.02, 0.22]]},
+                "bass": {"rms_values": [[0.0, 0.1], [0.02, 0.11]]}
+            }
+        }
+
         expected_final_job_result = {
             "mapped_result": expected_mapped_lyrics,
             "f0_analysis": f0_error_report,
+            "volume_analysis": expected_volume,
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
         }
@@ -404,11 +456,20 @@ class TestMain(unittest.TestCase):
         f0_no_stems_info = {
             "info": "No relevant stems were submitted for F0 analysis."
         }
+        expected_volume = {
+            "overall_rms": [[0.0, 0.15], [0.02, 0.18]],
+            "instruments": {
+                "vocals": {"rms_values": [[0.0, 0.2], [0.02, 0.22]]},
+                "bass": {"rms_values": [[0.0, 0.1], [0.02, 0.11]]}
+            }
+        }
+
         # In main.py, if request_f0_analysis returns this, f0_analysis_result_data will be this.
         # Then final_job_result will have it.
         expected_final_job_result = {
             "mapped_result": expected_mapped_lyrics,
             "f0_analysis": f0_no_stems_info,
+            "volume_analysis": expected_volume,
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
         }
@@ -460,6 +521,7 @@ class TestMain(unittest.TestCase):
     @patch('musictranslator.main.split_audio')
     @patch('musictranslator.main.align_lyrics')
     @patch('musictranslator.main.request_f0_analysis')
+    @patch('musictranslator.main.request_volume_analysis')
     @patch('musictranslator.main.map_transcript')
     @patch('musictranslator.main.get_current_job')
     @patch('threading.Thread')
@@ -468,6 +530,7 @@ class TestMain(unittest.TestCase):
         mock_thread_class,
         mock_get_job,
         mock_map,
+        mock_req_volume,
         mock_req_f0,
         mock_align_lyrics,
         mock_split
@@ -488,6 +551,10 @@ class TestMain(unittest.TestCase):
         mock_align_lyrics.return_value = "/fake/alignment.json"
         mock_req_f0.return_value = {
             "vocals": [220.0], "bass": [110.0]
+        }
+        mock_req_volume.return_value = {
+            "overall_rms": [[0.0, 0.15]],
+            "instruments": {"vocals": {"rms_values": [[0.0, 0.2]]}}
         }
         mock_map.return_value = [{
             'line_text': 'example line',
@@ -553,18 +620,23 @@ class TestMain(unittest.TestCase):
         }
         mock_req_f0.assert_called_once_with(mock_split.return_value)
 
+        # Volume analysis should be called with the original song path plus the stems
+        expected_volume_payload = {"song": "/fake/audio.wav", **mock_split.return_value}
+        mock_req_volume.assert_called_once_with(expected_volume_payload)
+
         mock_map.assert_called_once_with("/fake/alignment.json", "/fake/lyrics.txt")
 
         expected_final_result = {
             "mapped_result": mock_map.return_value,
             "f0_analysis": mock_req_f0.return_value,
+            "volume_analysis": mock_req_volume.return_value,
             "audio_url": "api/files/jobid_audio.wav",
             "original_filename": "audio.wav"
         }
         self.assertEqual(result, expected_final_result)
 
         # Verify that the two Thread instances were created
-        self.assertEqual(mock_thread_class.call_count, 2)
+        self.assertEqual(mock_thread_class.call_count, 3)
 
     def test_delete_audio_file_success(self):
         """Tests the DELETE /api/cleanup/<filename> endpoint."""
@@ -584,7 +656,7 @@ class TestMain(unittest.TestCase):
         malicious_filename = "../../../etc/passwd"
         response = self.client.delete(f'/api/cleanup/{malicious_filename}')
         self.assertEqual(response.status_code, 404)
-        self.assertIn(b"Invalid filename", response.data)
+        self.assertIn(b"Not Found", response.data)
 
 if __name__ == '__main__':
     unittest.main()

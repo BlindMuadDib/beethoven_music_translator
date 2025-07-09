@@ -9,8 +9,10 @@ def calculate_rms_for_file(file_path: str) -> list:
         file_path (str): The path to the audio file.
 
     Returns:
-        A list of [timestamp, rms_values] pairs.
-        Returns an empty list if the file cannot be processed.
+        A tuple containing (list_of_rms_data, error_message_string)
+        list_of_rms_data will contain [timestamp, rms_values] pairs.
+        On success, error_message_string will be None.
+        On failure, list_of_rms_data will be None.
     """
     try:
         # Load the audio file, sr=None preserves the original sample rate
@@ -25,9 +27,10 @@ def calculate_rms_for_file(file_path: str) -> list:
 
         # Combine into the desired [[t1, v1], [t2, v2], ...] format
         # Ensure values are standard Python floats for JSON serialization
-        return [[float(t), float(r)] for t, r in zip(times, rms_values)]
+        # Add None for the error
+        return [[float(t), float(r)] for t, r in zip(times, rms_values)], None
 
     except Exception as e:
         # Make more robust in refactor
         print(f"Error processing file {file_path}: {e}")
-        return []
+        return None, str(e)

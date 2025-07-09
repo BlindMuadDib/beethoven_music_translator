@@ -1,0 +1,14 @@
+# Flask and Gunicorn for the web server
+Flask==3.0.3
+gunicorn==22.0.0
+
+#NumPy and Librosa for audio processing
+numpy==1.26.4
+librosa==0.10.1
+
+#SciPy is a dependency of librosa
+scipy==1.13.1
+
+# Required by a dependency of librosa, and not included by default
+#  in some minimal Python environments
+setuptools==69.5.1

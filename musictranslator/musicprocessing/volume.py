@@ -13,13 +13,23 @@ VOLUME_SERVICE_URL = "http://rms-service:39574/api/analyze_rms"
 
 def request_volume_analysis(audio_data: dict):
     """
-    Requests Volume analysis from the volume microservice for the provided audio file and audio stems. We are using RMS because it is an accurate measurement of volume in electronic media, and gives relative volume. Both total relative volume and individual instrument relative volume are captured for a more complete picture.
+    Requests Volume analysis from the volume microservice
+    for the provided audio file and audio stems.
+    We are using RMS because it is an accurate measurement of
+    volume in electronic media, and gives relative volume.
+    Both total relative volume and individual instrument relative
+    volume are captured for a more complete picture.
 
     Args:
         data (dict): A data dictionary whos keys are tracks to be analyzed ('song', 'bass', 'drums', etc.) and values are directory paths to the file on the PVC.
 
     Returns:
-        A data dictionary where keys are "overall_rms" and "instruments." Instruments is a nested dictionary with keys who's values are a nested dictionary of the "rms_values". All "rms_values" are an array, where the first value represents the timestamp and the second number represents the RMS value at the given timestamp.
+        A data dictionary where keys are "overall_rms" and
+        "instruments." Instruments is a nested dictionary with
+        keys who's values are a nested dictionary of the "rms_values".
+        All "rms_values" are an array, where the first value
+        represents the timestamp and the second number represents
+        the RMS value at the given timestamp.
         example:
             {
             "overall_rms": [
@@ -105,7 +115,7 @@ def request_volume_analysis(audio_data: dict):
         return rms_results
     except requests.exceptions.HTTPError as http_err:
         return {
-            "error": f"HTTP Error occurred while calling Volume service: {http_err} - Response: {http_err.response.text if http_err.response else "No response text"}"
+            "error": f"HTTP Error occurred while calling Volume service: {http_err} - Response: {http_err.response.text if http_err.response else 'No response text'}"
         }
     except requests.exceptions.ConnectionError as conn_err:
         return {"error": f"Connection error calling Volume service: {conn_err}"}
