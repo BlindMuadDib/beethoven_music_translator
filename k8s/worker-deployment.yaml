@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: worker
-        image: blindmuaddib/music-translator:0.0.7
+        image: blindmuaddib/music-translator:latest
         command: ["python", "worker.py"]
         env:
           - name: REDIS_HOST
@@ -27,11 +27,11 @@ spec:
             mountPath: /shared-data
         resources:
           limits:
-            memory: "16Gi"
-            cpu: "4"
+            memory: "8Gi"
+            cpu: "2"
           requests:
             memory: "2Gi"
-            cpu: "1"
+            cpu: "500m"
       volumes:
         - name: shared-data-volume
           persistentVolumeClaim:
