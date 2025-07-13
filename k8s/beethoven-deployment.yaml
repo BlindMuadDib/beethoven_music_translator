@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: docker.io/blindmuaddib/beethoven:0.0.7
+          image: docker.io/blindmuaddib/beethoven:0.0.8
           ports:
             - containerPort: 80
           resources:
