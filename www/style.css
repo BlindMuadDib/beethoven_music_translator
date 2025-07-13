@@ -20,7 +20,8 @@ a:hover { text-decoration: underline; }
 }
 
 #player-ui-container {
-    flex-direction: column;
+    display: flex;
+    flex-direction: column; /* Stacks upper-stack-container and audio-player-wrapper vertically */
     width: 100%;
     max-width: 800px;
     margin: 20px auto; /* Center it */
@@ -29,40 +30,86 @@ a:hover { text-decoration: underline; }
     border: 1px solid blue; /* For layout debugging */
 }
 
-#audio-player-wrapper { /* Changed from #audio-player-container to avoid conflict with JS var */
-    height: 120px; /* Inspired by YouTube Music player. Includes title, metadata, player, controls */
-    flex-shrink: 0; /* Prevent shrinking */
-    padding: 15px;
+#upper-stack-container {
+    display: flex;
+    flex-direction: row; /* Arranges volume tracker and right-stack-container horizontally */
+    flex-grow: 1; /*Takes up the available verical space within player-ui-container */
+    width: 100%; /* Spans the width of player-ui-container */
+    gap: 10px; /* Space between volume tracker and right-stack-container */
+}
+
+#volume-tracker-container {
+    width: 50px; /* Fixed width for the skinny column */
+    flex-shrink: 0; /* Prevent it from shrinking */
+    height: 100%; /* Takes full height of upper-stack-container */
+    border: 1px solid #ddd;
+    background-color: #f9f9f9;
+    padding: 5px;
     box-sizing: border-box;
-    background-color: #f0f0f0;
-    border: 1px solic #ccc;
-    border-radius: 8px;
+    display: flex; /* For canvas centering */
+    flex-direction: column; /* To stack legend text and canvas verically */
+    align-items: center;
+    justify-content: center;
+    position: relative; /* For absolute positioning of legend if needed */
+}
+
+.volume-legend {
+    font-size: 0.8em;
+    color: #555;
+    white-space: nowrap; /* Prevent text from wrapping */
+    transform-origin: 0 0; /* Rotate around the top-left of the text */
+    transform: rotate(90deg); /* Rotate 90 degrees clockwise */
+    position: absolute;
+    left: 25px; /* Adjust based on padding and font size to center it */
+    top: 50%; /* Center vertically */
+    /* Push it half its width up, so it's truly centered after rotation
+     * This calulation depends on font size and line height; adjust as needed */
+    margin-left: -0.5em; /* Nudge left to account for rotation origin */
+    transform: translateY(-50%) rotate(-90deg); /* Rotate -90 degrees and center */
+}
+
+#overall-volume-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#right-stack-container {
+    display: flex;
+    flex-direction: column; /* Stacks Lyric and F0 verically */
+    flex-grow: 1; /* Takes up all remaining horizontal space in upper-stack-container */
+    width: 100%; /* Important for flex-grow to work correctly */
+    gap: 10px; /* Space between lyric and F0 trackers */
 }
 
 #lyric-tracker-container {
-    height: 240px; /* 2 x audio player height (2*120px) */
-    flex-shrink: 0;
-    padding: 10px;
-    box-sizing: border-box;
-    border: 1px solid #ddd;
-    margin-bottom: 10px; /* Space between lyric and F0 */
-    background-color: #f9f9f9;
-    overflow: hidden; /* Ensure canvas content fits */
-    display: flex; /* For canvas centering if needed */
-    align-items: center;
-    justify-content: center;
+flex-grow: 1;
+width: 100%; /* Fill the width of right-stack-container */
+min-height: 100px; /* Minimum height for lyric tracker */
+max-height: 240px; /* Max height: 2 * audio-player height */
+border: 1px solid #ddd;
+background-color: #f9f9f9;
+padding: 10px;
+box-sizing: border-box;
+overflow: hidden; /* Ensure canvas content fits */
+display: flex; /* For canvas centering if needed */
+align-items: center;
+justify-content: center;
 }
 
 #f0-tracker-container {
-    flex-grow: 1; /* Takes up remaining vertical space */
-    min-height: 150px; /* Ensure it has some minimum height if space is tight */
-    padding: 10px;
-    box-sizing: border-box;
-    border: 1px solid #ddd;
-    margin-bottom: 10px; /* Space between F0 and audio player */
-    background-color: #f9f9f9;
-    overflow: hidden; /* Important for canvas */
-    position: relative; /* For positioning elements inside if needed */
+flex-grow: 1; /* Takes up remaining vertical space */
+width: 100%; /* Fill the width of right-stack-container */
+min-height: 240px; /* Ensure it has some minimum height if space is tight */
+border: 1px solid #ddd;
+background-color: #f9f9f9;
+padding: 10px;
+box-sizing: border-box;
+overflow: hidden; /* Important for canvas */
+position: relative; /* For positioning elements inside if needed */
+display: flex;
+align-items: center;
+justify-content: center;
 }
 
 #lyric-canvas, #f0-canvas {
@@ -71,7 +118,25 @@ a:hover { text-decoration: underline; }
     display: block; /* Removes extra space below canvas if it's inline */
 }
 
+#audio-player-wrapper { /* Changed from #audio-player-container to avoid conflict with JS var.
+* Inspired by YouTube Music player. Includes title, metadata, player, controls */
+width: 100%; /* Take full width of player-ui-container */
+height: 120px;  /* Fixed height for the audio player section */
+flex-shrink: 0; /* Prevent shrinking */
+padding: 15px;
+box-sizing: border-box;
+background-color: #f0f0f0;
+border: 1px solid #ccc;
+border-radius: 8px;
+}
+
 /* Style the custom controls for a better look */
+#custom-controls {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    margin-top: 10px;
+}
 #custom-controls button {
     padding: 8px 12px;
     font-size: 0.9em;
