@@ -4,6 +4,7 @@ import { initPlayer } from './player.js';
 import { setupAudioPlayer } from './player/audio-player.js';
 import { LyricTracker } from './player/lyric-tracker.js';
 import { F0Tracker } from './player/f0-tracker.js';
+import { VolumeTracker } from './player/volume-tracker.js';
 import { init as appInit } from './app.js';
 
 // Find the root elements the app needs to start
@@ -15,6 +16,7 @@ const playerDependencies = {
     setupAudioPlayer,
     LyricTracker,
     F0Tracker,
+    VolumeTracker,
 };
 
 // Start the application by injecting all real dependencies

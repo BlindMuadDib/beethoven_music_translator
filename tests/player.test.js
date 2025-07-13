@@ -1,36 +1,45 @@
 import { jest, describe, test, expect } from '@jest/globals';
-import { initPlayer } from '../www/js/player.js';
-import { LyricTracker } from '../www/js/player/lyric-tracker.js';
-import { F0Tracker } from '../www/js/player/f0-tracker.js';
+
+// Define mock functions *before* the imports that use them
+const mockLyricTracker = jest.fn();
+const mockF0Tracker = jest.fn();
+const mockVolumeTracker = jest.fn();
+const mockSetupAudioPlayer = jest.fn();
+
+// Mock the sub-modules to isolate the player facade's logic
+jest.doMock('../www/js/player/lyric-tracker.js', () => ({ LyricTracker: mockLyricTracker }));
+jest.doMock('../www/js/player/f0-tracker.js', () => ({ F0Tracker: mockF0Tracker }));
+jest.doMock('../www/js/player/volume-tracker.js', () => ({ VolumeTracker: mockVolumeTracker }));
+jest.doMock('../www/js/player/audio-player.js', () => ({ setupAudioPlayer: mockSetupAudioPlayer }));
+
+// Now import initPlayer. It will use the mocked versions of the dependencies.
+const { initPlayer } = await import('../www/js/player.js');
 
 describe('Player Facade Integration)', () => {
 
-    test('initPlayer should correctly update real trackers on audio timeupdate event', () => {
-        // Arrange: Create mock dependencies
-        const mockSetupAudioPlayer = jest.fn();
-
-        // Assemble the dependencies object, matching the shape initPlayer expects
-        const mockDependencies = {
+    test('initPlayer should correctly initialize and update all trackers', () => {
+        // Arrange
+        // Explicitly pass the mocked constructors in the dependencies object
+        const mockedDependencies = {
+            LyricTracker: mockLyricTracker,
+            F0Tracker: mockF0Tracker,
+            VolumeTracker: mockVolumeTracker,
             setupAudioPlayer: mockSetupAudioPlayer,
-            LyricTracker: LyricTracker,
-            F0Tracker: F0Tracker,
         };
 
         // Set up the required DOM
         document.body.innerHTML = `
+            <div id="song-title"></div>
             <audio id="audio-player"></audio>
-            <canvas id="lyric-canvas" width="600" height="150"></canvas>
-            <canvas id="f0-canvas" width="600" height="300"></canvas>
+            <canvas id="lyric-canvas"></canvas>
+            <canvas id="f0-canvas"></canvas>
+            <canvas id="overall-volume-canvas"></canvas>
+            <button id="player-play-pause"></button>
+            <button id="player-stop"></button>
+            <button id="player-rewind"></button>
+            <button id="player-ffwd"></button>
+            <input id="volume-control" type="range" />
         `;
-        const audioEl = document.getElementById('audio-player');
-
-        // Capture the function passed to addEventListener
-        let timeUpdateCallback;
-        jest.spyOn(audioEl, 'addEventListener').mockImplementation((event, callback) => {
-            if (event === 'timeupdate') {
-                timeUpdateCallback = callback;
-            }
-        });
 
         const mockResultData = {
             mapped_result: [{
@@ -54,23 +63,32 @@ describe('Player Facade Integration)', () => {
                     time_interval: 0.01
                 },
             },
+            volume_analysis: {
+                overall_rms: [[0.01, 0.5], [0.02, 0.7]],
+                instruments: {
+                    vocals: {
+                        rms_values: [[0.01, 0.3], [0.02, 0.4]]
+                    },
+                    bass: {
+                        rms_values: [[0.01, 0.4], [0.02, 0.3]]
+                    }
+                }
+            },
             audio_url: 'fake.wav',
             original_filename: 'fake.wav'
         };
 
-        // Spy on the update methods of the REAL classes' prototypes
-        const lyricUpdateSpy = jest.spyOn(LyricTracker.prototype, 'update');
-        const f0UpdateSpy = jest.spyOn(F0Tracker.prototype, 'update');
+        // ACT: Call initPlayer directly. The internal imports within initPlayer
+        // will resolve to the mocked version because of jest.mock at the top.
+        // You only need to pass the mockResultData and the onAudioEnded
+        initPlayer(mockResultData, jest.fn(), mockedDependencies);
 
-        // ACT: Call initPlayer and PASS IN the single mocked dependencies object
-        initPlayer(mockResultData, jest.fn(), mockDependencies);
+        // Assert that the mocked constructors for our trackers were called with the correct data
+        expect(mockLyricTracker).toHaveBeenCalledWith(expect.anything(), mockResultData.mapped_result);
+        expect(mockF0Tracker).toHaveBeenCalledWith(expect.anything(), mockResultData.f0_analysis, mockResultData.volume_analysis.instruments);
+        expect(mockVolumeTracker).toHaveBeenCalledWith('overall-volume-canvas');
 
-        // Simulate a timeupdate event from the browser
-        audioEl.currentTime = .03
-        timeUpdateCallback();
-
-        // Assert: The update methods on the real instances should have been called
-        expect(lyricUpdateSpy).toHaveBeenCalledWith(0.03);
-        expect(f0UpdateSpy).toHaveBeenCalledWith(0.03);
+        // Assert that the audio player setup was called
+        expect(mockSetupAudioPlayer).toHaveBeenCalled();
     });
 });

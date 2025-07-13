@@ -25,6 +25,7 @@ from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
 from musictranslator.musicprocessing.transcribe import map_transcript
 from musictranslator.musicprocessing.F0 import request_f0_analysis
+from musictranslator.musicprocessing.volume import request_volume_analysis
 
 app = Flask(__name__)
 
@@ -148,17 +149,16 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
             separate_cleanup_path = os.path.dirname(first_stem_path)
         logger.info("Step 1 Complete. Vocals Stem Path: %s. Cleanup path: %s", vocals_stem_path, separate_cleanup_path)
 
-        # --- 2. Concurrent F0 Analysis and Lyrics Alignment ---
-        logger.info("Step 2: Starting concurrent F0 analysis and Lyrics Alignment ...")
+        # --- 2. Concurrent F0 Analysis, Volume and Lyrics Alignment ---
+        logger.info("Step 2: Starting concurrent F0 and Volume analysis, and Lyrics Alignment ...")
         if job:
             job.meta['progress_stage'] = 'stem_processing'
             job.save_meta()
 
         thread_results_shared = {
-            "alignment_json_path": None,
-            "f0_analysis_data": None,
-            "alignment_error": None,
-            "f0_error": None
+            "alignment_json_path": None, "alignment_error": None,
+            "f0_analysis_data": None, "f0_error": None,
+            "volume_analysis_data": None, "volume_error": None,
         }
 
         def _align_lyrics_task():
@@ -198,15 +198,35 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                 logger.error("F0-Thread: Exception - %s", e, exc_info=True)
                 thread_results_shared["f0_error"] = str(e)
 
+        def _volume_analysis_task():
+            try:
+                logger.info("Volume-Thread: Starting volume analysis.")
+                # Payload requires the original song path in addition to the stems
+                payload = {"song": unique_audio_path, **separate_result}
+                result = request_volume_analysis(payload)
+                if isinstance(result, dict) and "error" in result:
+                    thread_results_shared["volume_error"] = result["error"]
+                elif not isinstance(result, dict):
+                    thread_results_shared["volume_error"] = f"Volume analysis returned unexpected data type: {type(result)}"
+                else:
+                    thread_results_shared["volume_analysis_data"] = result
+                    logger.info("Volume-Thread: Volume analysis successful.")
+            except Exception as e:
+                logger.error("Volume-Thread: Exception = %s", e, exc_info=True)
+                thread_results_shared["volume_error"] = str(e)
+
         align_thread = threading.Thread(target=_align_lyrics_task, name="AlignLyricsThread")
         f0_thread = threading.Thread(target=_f0_analysis_task, name="F0AnalysisThread")
+        volume_thread = threading.Thread(target=_volume_analysis_task, name="VolumeAnalysisThread")
 
         align_thread.start()
         f0_thread.start()
+        volume_thread.start()
 
-        # Wait for both services to complete
+        # Wait for services to complete
         align_thread.join()
         f0_thread.join()
+        volume_thread.join()
 
         logger.info("Concurrent processing finished. Checking results ...")
 
@@ -229,6 +249,15 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
         f0_analysis_result = thread_results_shared["f0_analysis_data"]
         logger.info("Step 2.2 (F0 Analysis) Complete.")
 
+        # Process Volume results
+        volume_analysis_result = thread_results_shared["volume_analysis_data"]
+        if thread_results_shared["volume_error"]:
+            logger.warning("Volume analysis encountered an error: %s. Proceeding without volume data.", thread_results_shared['volume_error'])
+            volume_analysis_result = {
+                "error": thread_results_shared["volume_error"],
+                "info": "Volume analysis did not complete successfully."}
+        logger.info("Step 2.3 (Volume Analysis) Complete.")
+
         # --- 3. Map Transcript and Combine Results ---
         logger.info("Step 3: Mapping transcript and combining results ...")
         if job:
@@ -245,6 +274,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
         final_job_result = {
             "mapped_result": mapped_result,
             "f0_analysis": f0_analysis_result if f0_analysis_result else None,
+            "volume_analysis": volume_analysis_result if volume_analysis_result else None,
             "audio_url": f"api/files/{unique_audio_filename}",
             "original_filename": original_audio_filename
         }

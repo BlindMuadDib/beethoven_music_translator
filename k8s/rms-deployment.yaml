@@ -2,32 +2,30 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: demucs-deployment
-  labels:
-    app: demucs-wrapper
+  name: rms-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: demucs-wrapper
+      app: volume-analyzer
   template:
     metadata:
       labels:
-        app: demucs-wrapper
+        app: volume-analyzer
     spec:
       containers:
-        - name: demucs-container
-          image: docker.io/blindmuaddib/separate-endpoint:1.1
+        - name: volume-analyzer-container
+          image: docker.io/blindmuaddib/volume-endpoint:1
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 22227
+            - containerPort: 39574
           resources:
             requests:
               cpu: "2"
-              memory: "8Gi"
+              memory: "16Gi"
             limits:
-              cpu: "6"
-              memory: "48Gi"
+              cpu: "4"
+              memory: "24Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/audio

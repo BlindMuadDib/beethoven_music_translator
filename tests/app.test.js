@@ -72,6 +72,17 @@ describe('App End-to-End User Flow Integration', () => {
                     "time_interval": 0.01
                 },
             },
+            "volume_analysis": {
+                "overall_rms": [[0.01, 0.5], [0.02, 0.7]],
+                "instruments": {
+                    "vocals": {
+                        "rms_values": [[0.01, 0.4], [0.02, 0.3]]
+                    },
+                    "bass": {
+                        "rms_values": [[0.01, 0.3], [0.02, 0.4]]
+                    },
+                }
+            },
             "audio_url": "/shared-data/audio/123-test.wav",
             "original_filename": "Test.wav"
         } });
@@ -110,6 +121,17 @@ describe('App End-to-End User Flow Integration', () => {
                     "f0_values": [110.0, null, 110.2],
                     "time_interval": 0.01
                 },
+            },
+            "volume_analysis": {
+                "overall_rms": [[0.01, 0.5], [0.02, 0.7]],
+                "instruments": {
+                    "vocals": {
+                        "rms_values": [[0.01, 0.4], [0.02, 0.3]]
+                    },
+                    "bass": {
+                        "rms_values": [[0.01, 0.3], [0.02, 0.4]]
+                    },
+                }
             },
             "audio_url": "/shared-data/audio/123-test.wav",
             "original_filename": "Test.wav"
