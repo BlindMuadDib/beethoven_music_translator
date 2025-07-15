@@ -18,35 +18,6 @@ MOCK_ONSET_AUDIO_CLEAR_ONSETS = np.concatenate([
     np.zeros(int(0.5 * MOCK_SR), dtype=np.float32) # Silence
 ]).astype(np.float32)
 
-# --- Tests for load_audio_from_bytes ---
-def test_load_audio_from_bytes_valid_wav_mocked():
-    """Mock soundfile.read to return our predefined NumPy array and sample rate"""
-    with patch('soundfile.read') as mock_sf_read:
-        mock_sf_read.return_value = (MOCK_SHORT_AUDIO, MOCK_SR)
-
-        # Pass dummy bytes; the actual content doesn't matter since soundfile.read is mocked
-        audio_bytes_raw = b"dummy wav data thhat represents bytes"
-        y_actual, sr_actual = drum_analysis.load_audio_from_bytes(audio_bytes_raw)
-
-        np.testing.assert_array_almost_equal(y_actual, MOCK_SHORT_AUDIO)
-        assert sr_actual == MOCK_SR
-        # Verify that soundfile.read was called with the BytesIO object created from those bytes
-        # We need to be careful with assert_called_once_with
-        # as BytesIO objects are different instances.
-        # Let's check the type of argument is received.
-        assert isinstance(mock_sf_read.call_args[0][0], io.BytesIO)
-        # This checks content
-        assert mock_sf_read.call_args[0][0].getvalue() == audio_bytes_raw
-
-def test_load_audio_from_bytes_empty_bytes_mocked_error():
-    """ Mock soundfile.read to raise an error for invalid/empty audio"""
-    with patch('soundfile.read', side_effect=Exception("Mocked soundfile error")) as mock_sf_read:
-        with pytest.raises(Exception, match="Mocked soundfile error"):
-            drum_analysis.load_audio_from_bytes(b"")
-        # Ensure it was called with BytesIO(b"")
-        assert isinstance(mock_sf_read.call_args[0][0], io.BytesIO)
-        assert mock_sf_read.call_args[0][0].getvalue() == b""
-
 # --- Tests for detect_onsets (mocking librosa internals) ---
 @patch('librosa.onset.onset_strength')
 @patch('librosa.onset.onset_detect')

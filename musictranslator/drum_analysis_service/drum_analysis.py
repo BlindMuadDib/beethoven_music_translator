@@ -1,4 +1,4 @@
-import io
+import os
 import logging
 import concurrent
 from concurrent.futures import ThreadPoolExecutor
@@ -8,33 +8,32 @@ import librosa.display
 import soundfile as sf
 
 # Setup basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def load_audio_from_bytes(audio_bytes: bytes) -> tuple[np.ndarray, int]:
+def load_audio_from_file(file_path: str) -> tuple[np.ndarray, int]:
     """
-    Loads audio data from a BytesIO object using soundfile.
+    Loads audio from a given file path.
     Args:
-        audio_bytes (bytes): Raw audio data as bytes.
+        file_path (str): The path to the audio file.
     Returns:
-        tuple[np.ndarray, int]: Audio time series (y) and sampling rate (sr).
+        tuple[np.ndarray, int]: A tuple containing the audio time series (y) and sampling rate (sr).
     Raises:
-        Exception: If audio data cannot be loaded
+        FileNotFoundError: If the file_path does not exist.
+        Exception: For other errors during audio loading.
     """
+    if not os.path.exists(file_path):
+        logger.error("Audio file not found: %s", file_path)
+        raise FileNotFoundError("Audio file not found: %s", file_path)
+
     try:
-        audio_io = io.BytesIO(audio_bytes)
-        # librosa.load can take a file-like object directly if soundfile is installed
-        # It's more robust to let soundfile handle it and pass the BytesIO object
-        # which acts like an in-memory file.
-        y, sr = sf.read(audio_io, dtype='float32')
-        # Ensure it's a 1D array if it's stereo
-        if y.ndim > 1:
-            y = librosa.to_mono(y.T)
-        logger.info("Audio loaded: shape=%s, sr=%s", y.shape, sr)
+        # sr=None preserves the original sr, mono=True converts to mono
+        y, sr = librosa.load(file_path, sr=None, mono=True)
+        logger.info("Successfully loaded audio from %s. Shape: %s, SR: %s", file_path, y.shape, sr)
         return y, sr
     except Exception as e:
-        logger.error("Error loading audio from bytes: %s", e, exc_info=True)
-        raise # Re-raise to be handled by calling function
+        logger.error("Error loading audio file %s: %s", file_path, e, exc_info=True)
+        raise # Re-raises the exception after logging
 
 def detect_onsets(y: np.ndarray, sr: int) -> list[float]:
     """
