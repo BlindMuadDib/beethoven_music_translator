@@ -1,7 +1,8 @@
 import os
 import logging
+import sys
 from flask import Flask, request, jsonify
-from musictranslator.drum_analysis_service import drum_analysis
+from drum_analysis_service import drum_analysis
 
 # --- Flask App Setup ---
 app = Flask(__name__)
@@ -9,7 +10,8 @@ app = Flask(__name__)
 # --- Logging Setup ---
 # Configure logging for the Flask app
 # Using Flask's  logger makes it integrate well with Flask's debugging and deployment.
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG, stream=sys.stdout,
+                    format='%(asctime)s = %(name)s - %(levelname)s - %(message)s')
 logger = app.logger
 
 @app.route('/api/analyze_drums', methods=['POST'])
@@ -41,8 +43,16 @@ def analyze_drums_endpoint():
     try:
         # 1. Load audio from file path
         y, sr = drum_analysis.load_audio_from_file(drums_path)
+        logger.info(
+            "Before calling detect_onset: y_audio type=%s, shape=%s, sr_audio=%s",
+            type(y), y.shape, sr
+        )
+        if y.size == 0:
+            logger.error("Audio series 'y' is empty before onset detection!")
+            raise
 
         # 2. Perform concurrent drum analysis
+        logger.info("Calling analyze_audio_concurrently...")
         drum_hits = drum_analysis.analyze_audio_concurrently(y, sr)
 
         if drum_hits:
@@ -54,7 +64,7 @@ def analyze_drums_endpoint():
         logger.info("Drum analysis complete. Returing results for: %s", drums_path)
 
     except Exception as e:
-        logger.error("Error during drum analysis: %s", e, exc_info=True)
+        logger.critical("Unhandled error during drum analysis: %s", e, exc_info=True)
         return jsonify({"error": "Internal server error during analysis. Details: " + str(e)}), 500
 
 @app.route('/drums/health', methods=['GET'])

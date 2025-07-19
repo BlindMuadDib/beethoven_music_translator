@@ -8,7 +8,7 @@ import librosa.display
 import soundfile as sf
 
 # Setup basic logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 def load_audio_from_file(file_path: str) -> tuple[np.ndarray, int]:
@@ -32,7 +32,7 @@ def load_audio_from_file(file_path: str) -> tuple[np.ndarray, int]:
         logger.info("Successfully loaded audio from %s. Shape: %s, SR: %s", file_path, y.shape, sr)
         return y, sr
     except Exception as e:
-        logger.error("Error loading audio file %s: %s", file_path, e, exc_info=True)
+        logger.critical("Error loading audio file %s: %s", file_path, e, exc_info=True)
         raise # Re-raises the exception after logging
 
 def detect_onsets(y: np.ndarray, sr: int) -> list[float]:
@@ -44,16 +44,45 @@ def detect_onsets(y: np.ndarray, sr: int) -> list[float]:
     Returns:
         list[float]: List of onset times in seconds.
     """
+    logger.info("Starting onset detection. Audio length: %ss, SR: %s", (len(y)/sr), sr)
     try:
         # Compute onset strength envelope
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        logger.debug("Onset strength envelope computed. Shape: %s, Max value: %s", onset_env.shape, np.max(onset_env))
+
+        if onset_env is None:
+            logger.error("onset_env is None after librosa.onset.onset_strength. This is unexpected.")
+            return []
+        if not isinstance(onset_env, np.ndarray):
+            logger.error("onset_env is not a numpy array. Type: %s",
+                         type(onset_env))
+            return []
+        if onset_env.size == 0:
+            logger.error("onset_env is an empty numpy array after librosa.onset.onset_strength. No onsets can be detected.")
+            return []
+
         # Detect onsets based on the onset strength envelope
-        onset_frames = librosa.onset.onset_detect(onset_env=onset_env, sr=sr)
+        # Default delta value is 0.7. Decreasing delta will increase
+        # sensitivity. A smaller delta means it's easier to detect
+        # a "peak" relative to surrounding values.
+        onset_frames = librosa.onset.onset_detect(
+            onset_envelope=onset_env,
+            sr=sr,
+            wait=5,
+            pre_max=3,
+            post_max=3,
+            delta=.1
+         )
         onset_times = librosa.frames_to_time(onset_frames, sr=sr)
         logger.info("Detected %s onsets.", len(onset_times))
+        if len(onset_times) == 0:
+            logger.warning("No onsets detected. This might indicate the audio is too quiet, lacks transients, or default parameters are too strict.")
+        else:
+            logger.debug(f"Detected onset times (first 10): {[f'{t:.2f}' for t in onset_times[:10]]}...")
+            logger.debug(f"Detected onset times (last 10): {[f'{t:.2f}' for t in onset_times[-10:]] if len(onset_times) > 10 else onset_times}...")
         return onset_times.tolist()
     except Exception as e:
-        logger.error("Error during onset detection: %s", e, exc_info=True)
+        logger.critical("Error during onset detection: %s", e, exc_info=True)
         return []
 
 def extract_dynamic_segment(
@@ -97,6 +126,7 @@ def extract_dynamic_segment(
     segment_for_decay_analysis = y[start_sample:current_segment_end_candidate]
 
     if len(segment_for_decay_analysis) == 0:
+        logger.debug("Segment for decay analysis is empty at onset %ss.", current_onset_time)
         return np.array([], dtype=np.float32)
 
     # Calculate RMS energy for the entire signal for normalization
@@ -114,11 +144,12 @@ def extract_dynamic_segment(
     )[0]
 
     if len(rms_segment) == 0:
+        logger.debug("RMS segment is empty for onset %ss.", current_onset_time)
         return np.array([], dtype=np.float32)
 
     peak_rms_segment = np.max(rms_segment)
     if peak_rms_segment < 1e-7: # Avoid division by zero for silent segments
-        logger.debug(f"Onset at {onset_time:.2f}s has near-silent peak RMS. Using max_duration.")
+        logger.debug(f"Onset at {current_onset_time:.2f}s has near-silent peak RMS. Using max_duration.")
         end_sample = min(len(y), start_sample + int(max_duration * sr))
         return y[start_sample:end_sample]
 
@@ -264,7 +295,7 @@ def analyze_audio_concurrently(y: np.ndarray, sr: int) -> list[dict]:
                 if result_data: # Only add if the segment wasn't empty
                     analysis_results.append(result_data)
             except Exception as exc:
-                logger.error(
+                logger.critical(
                     f'Onset at {onset_time:.2f}s generated an exception: {exc}',
                     exc_info=True
                     )
@@ -291,5 +322,5 @@ def _process_single_onset(
         features['onset_time'] = float(current_onset_time)
         return features
     except Exception as e:
-        logger.error(f"Error processing single onset at {current_onset_time:.2f}s: {e}", exc_info=True)
+        logger.critical(f"Error processing single onset at {current_onset_time:.2f}s: {e}", exc_info=True)
         return None
