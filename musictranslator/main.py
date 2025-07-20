@@ -12,9 +12,8 @@ import shutil
 import subprocess
 import logging
 import uuid
-import magic
 import threading
-import time
+import magic
 import redis
 import rq
 from rq import Queue, get_current_job
@@ -25,6 +24,8 @@ from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
 from musictranslator.musicprocessing.transcribe import map_transcript
 from musictranslator.musicprocessing.F0 import request_f0_analysis
+from musictranslator.musicprocessing.volume import request_volume_analysis
+from musictranslator.musicprocessing.drums import request_drum_analysis
 
 app = Flask(__name__)
 
@@ -33,7 +34,7 @@ SERVE_AUDIO_DIR = '/shared-data/audio'
 
 # Store valid access codes
 
-VALID_ACCESS_CODES = set([''])
+VALID_ACCESS_CODES = set(['L4D5_R0CK_*0!L_&AND', '57TX_H9FK_77DBR7_QQ', 'NH009_GBF45_DBV88_NFD'])
 
 # --- Lazy Redis Connection and Queue  ---
 
@@ -111,6 +112,8 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
     alignment_json_path = None
     vocals_stem_path = None
     f0_analysis_result = None
+    volume_analysis_result = None
+    drum_analysis_result = None
     separate_cleanup_path = None
     job = get_current_job()
 
@@ -138,6 +141,8 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
             raise Exception(f"Audio separation failed: {separate_result['error']}")
 
         vocals_stem_path = separate_result.get('vocals')
+        drums_stem_path = separate_result.get('drums')
+
         if not vocals_stem_path or not os.path.exists(vocals_stem_path):
             logger.error("Vocals track not found after separation.")
             raise Exception("Error during audio separation: Vocals track not found.")
@@ -148,17 +153,17 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
             separate_cleanup_path = os.path.dirname(first_stem_path)
         logger.info("Step 1 Complete. Vocals Stem Path: %s. Cleanup path: %s", vocals_stem_path, separate_cleanup_path)
 
-        # --- 2. Concurrent F0 Analysis and Lyrics Alignment ---
-        logger.info("Step 2: Starting concurrent F0 analysis and Lyrics Alignment ...")
+        # --- 2. Concurrent F0, Volume & Drum Analysis and Lyrics Alignment ---
+        logger.info("Step 2: Starting concurrent F0, Drum and Volume analysis, and Lyrics Alignment ...")
         if job:
             job.meta['progress_stage'] = 'stem_processing'
             job.save_meta()
 
         thread_results_shared = {
-            "alignment_json_path": None,
-            "f0_analysis_data": None,
-            "alignment_error": None,
-            "f0_error": None
+            "alignment_json_path": None, "alignment_error": None,
+            "f0_analysis_data": None, "f0_error": None,
+            "volume_analysis_data": None, "volume_error": None,
+            "drum_analysis_data": None, "drum_error": None,
         }
 
         def _align_lyrics_task():
@@ -198,15 +203,61 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                 logger.error("F0-Thread: Exception - %s", e, exc_info=True)
                 thread_results_shared["f0_error"] = str(e)
 
+        def _volume_analysis_task():
+            try:
+                logger.info("Volume-Thread: Starting volume analysis.")
+                # Payload requires the original song path in addition to the stems
+                payload = {"song": unique_audio_path, **separate_result}
+                result = request_volume_analysis(payload)
+                if isinstance(result, dict) and "error" in result:
+                    thread_results_shared["volume_error"] = result["error"]
+                elif not isinstance(result, dict):
+                    thread_results_shared["volume_error"] = f"Volume analysis returned unexpected data type: {type(result)}"
+                else:
+                    thread_results_shared["volume_analysis_data"] = result
+                    logger.info("Volume-Thread: Volume analysis successful.")
+            except Exception as e:
+                logger.error("Volume-Thread: Exception = %s", e, exc_info=True)
+                thread_results_shared["volume_error"] = str(e)
+
+        def _drum_analysis_task():
+            # Only run if a drums stem was actually produced by Demucs
+            if not drums_stem_path or not os.path.exists(drums_stem_path):
+                logger.info("Drum-Thread: No drums stem available for analysis. Skipping.")
+                thread_results_shared["drum_analysis_data"] = {"info": "No drums stem available."}
+                return
+            try:
+                logger.info("Drum-Thread: Starting drum analysis for stem: %s", drums_stem_path)
+                result = request_drum_analysis(drums_stem_path)
+                if isinstance(result, dict) and "error" in result:
+                    thread_results_shared["drum_error"] = result["error"]
+                    logger.error(f"Drum-Thread: Drum service error - %s", result["error"])
+                elif not isinstance(result, list):
+                    err_msg = f"Drum analysis returned unexpected data type: {type(result)}"
+                    thread_results_shared["drum_error"] = err_msg
+                    logger.error("Drum-Thread: %s", err_msg)
+                else:
+                    thread_results_shared["drum_analysis_data"] = result
+                    logger.info("Drum-Thread: Drum analysis successful.")
+            except Exception as e:
+                logger.error("Drum-Thread: Exception - %s", e, exc_info=True)
+                thread_results_shared["drum_error"] = str(e)
+
         align_thread = threading.Thread(target=_align_lyrics_task, name="AlignLyricsThread")
         f0_thread = threading.Thread(target=_f0_analysis_task, name="F0AnalysisThread")
+        volume_thread = threading.Thread(target=_volume_analysis_task, name="VolumeAnalysisThread")
+        drums_thread = threading.Thread(target=_drum_analysis_task, name="DrumAnalysisThread")
 
         align_thread.start()
         f0_thread.start()
+        volume_thread.start()
+        drums_thread.start()
 
-        # Wait for both services to complete
+        # Wait for services to complete
         align_thread.join()
         f0_thread.join()
+        volume_thread.join()
+        drums_thread.join()
 
         logger.info("Concurrent processing finished. Checking results ...")
 
@@ -229,6 +280,28 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
         f0_analysis_result = thread_results_shared["f0_analysis_data"]
         logger.info("Step 2.2 (F0 Analysis) Complete.")
 
+        # Process Volume results
+        volume_analysis_result = thread_results_shared["volume_analysis_data"]
+        if thread_results_shared["volume_error"]:
+            logger.warning("Volume analysis encountered an error: %s. Proceeding without volume data.", thread_results_shared['volume_error'])
+            volume_analysis_result = {
+                "error": thread_results_shared["volume_error"],
+                "info": "Volume analysis did not complete successfully."}
+        logger.info("Step 2.3 (Volume Analysis) Complete.")
+
+        # Process Drum Results
+        if thread_results_shared["drum_error"]:
+            logger.warning(
+                "Drum analysis encountered an error: %s. Proceeding without drum data.",
+                thread_results_shared["drum_error"]
+                )
+            drum_analysis_result = {
+                "error": thread_results_shared["drum_error"],
+                "info": "Drum analysis did not complete successfully."
+            }
+        drum_analysis_result = thread_results_shared["drum_analysis_data"]
+        logger.info("Step 2.4 (Drum Analysis) Complete.")
+
         # --- 3. Map Transcript and Combine Results ---
         logger.info("Step 3: Mapping transcript and combining results ...")
         if job:
@@ -245,6 +318,8 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
         final_job_result = {
             "mapped_result": mapped_result,
             "f0_analysis": f0_analysis_result if f0_analysis_result else None,
+            "volume_analysis": volume_analysis_result if volume_analysis_result else None,
+            "drum_analysis": drum_analysis_result if drum_analysis_result else None,
             "audio_url": f"api/files/{unique_audio_filename}",
             "original_filename": original_audio_filename
         }
