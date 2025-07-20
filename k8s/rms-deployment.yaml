@@ -2,38 +2,38 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: beethoven-deployment
-  labels:
-    app: beethoven
+  name: rms-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: beethoven
+      app: volume-analyzer
   template:
     metadata:
       labels:
-        app: beethoven
+        app: volume-analyzer
     spec:
       containers:
-        - name: nginx
-          image: docker.io/blindmuaddib/beethoven:latest
+        - name: volume-analyzer-container
+          image: docker.io/blindmuaddib/volume-endpoint:1
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 80
+            - containerPort: 39574
           resources:
             requests:
-              cpu: "200m"
-              memory: "512Mi"
-            limits:
               cpu: "1"
-              memory: "2Gi"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/audio
               subPath: audio
+            - name: shared-data
+              mountPath: /shared-data/separator_output
+              subPath: separator_output
       volumes:
         - name: shared-data
           persistentVolumeClaim:
             claimName: shared-data-pvc
-
-

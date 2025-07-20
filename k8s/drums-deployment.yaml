@@ -2,36 +2,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: demucs-deployment
-  labels:
-    app: demucs-wrapper
+  name: drums-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: demucs-wrapper
+      app: drums-client
   template:
     metadata:
       labels:
-        app: demucs-wrapper
+        app: drums-client
     spec:
       containers:
-        - name: demucs-container
-          image: docker.io/blindmuaddib/separate-endpoint:1.1
+        - name: drums-client-container
+          image: docker.io/blindmuaddib/drums-endpoint:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 22227
+            - containerPort: 25941
           resources:
             requests:
-              cpu: "4"
-              memory: "24Gi"
+              cpu: "2"
+              memory: "8Gi"
             limits:
-              cpu: "8"
-              memory: "40Gi"
+              cpu: "4"
+              memory: "16Gi"
           volumeMounts:
-            - name: shared-data
-              mountPath: /shared-data/audio
-              subPath: audio
             - name: shared-data
               mountPath: /shared-data/separator_output
               subPath: separator_output
@@ -39,3 +34,5 @@ spec:
         - name: shared-data
           persistentVolumeClaim:
             claimName: shared-data-pvc
+
+

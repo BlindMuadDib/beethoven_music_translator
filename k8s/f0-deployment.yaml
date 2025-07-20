@@ -21,11 +21,11 @@ spec:
             - containerPort: 20006
           resources:
             requests:
+              cpu: "2"
+              memory: "8Gi"
+            limits:
               cpu: "4"
               memory: "16Gi"
-            limits:
-              cpu: "6"
-              memory: "24Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/separator_output

@@ -219,6 +219,92 @@ class TestIntegration(unittest.TestCase):
                 self.assertTrue(found_f0_stems > 0)
             print("F0 analysis data structure appears valid.")
 
+            # --- Validate volume_analysis portion ---
+            self.assertIn("volume_analysis", final_job_result_data)
+            volume_data = final_job_result_data["volume_analysis"]
+            print("Validating volume_analysis structure ...")
+
+            if isinstance(volume_data, dict) and ("error" in volume_data or "info" in volume_data):
+                self.fail(f"Volume analysis reported an error or info message: {volume_data}")
+            else:
+                self.assertIsInstance(volume_data, dict)
+                self.assertIn("overall_rms", volume_data)
+                self.assertIn("instruments", volume_data)
+
+                # Validate overall_rms structure
+                self.assertIsInstance(volume_data["overall_rms"], list)
+                if volume_data["overall_rms"]:
+                    self.assertIsInstance(volume_data["overall_rms"][0], list)
+                    self.assertEqual(len(volume_data["overall_rms"][0]), 2)
+
+                # Validate instruments structure
+                self.assertIsInstance(volume_data["instruments"], dict)
+                self.assertTrue(len(volume_data["instruments"]) > 0, "Instruments dictionary should not be empty.")
+                for stem_name, stem_rms_values in volume_data["instruments"].items():
+                    self.assertIn("rms_values", stem_rms_values)
+                    self.assertIsInstance(stem_rms_values["rms_values"], list)
+                    if stem_rms_values["rms_values"]:
+                        self.assertIsInstance(stem_rms_values["rms_values"][0], list)
+                        self.assertEqual(len(stem_rms_values["rms_values"][0]), 2)
+                print("Volume analysis data structure appears valid.")
+
+            # --- Validate drum_analysis portion ---
+            self.assertIn("drum_analysis", final_job_result_data)
+            drums_data = final_job_result_data["drum_analysis"]
+            print("Validating drum_analysis structure...")
+
+            if isinstance(drums_data, dict) and ("error" in drums_data or "info" in drums_data):
+                self.fail(f"Drums analysis reported an error or info message: {drums_data}")
+            else:
+                self.assertIsInstance(drums_data, list)
+                if not drums_data:
+                    self.fail("Drum analysis data is an empty list, but no error was reported.")
+
+                # Iterate through each drum event dictionary
+                for i, drum_event in enumerate(drums_data):
+                    self.assertIsInstance(
+                        drum_event, dict,
+                        f"Drum event at index {i} is not a dictionary."
+                    )
+
+                    # Define expected float keys
+                    float_keys = [
+                        "onset_time", "duration", "relative_volume",
+                        "dominant_frequency", "spectral_centroid",
+                        "spectral_rolloff", "spectral_flux"
+                    ]
+
+                    for key in float_keys:
+                        self.assertIn(
+                            key, drum_event,
+                            f"Missing key '{key}' in drum event at index {i}."
+                        )
+                        self.assertIsInstance(
+                            drum_event[key], float,
+                            f"Value for '{key}' in drum event at index {i} is not a float."
+                        )
+
+                    # Validate mfccs
+                    self.assertIn(
+                        "mfccs", drum_event,
+                        f"Missing key 'mfccs' in drum event at index {i}"
+                    )
+                    mfccs = drum_event["mfccs"]
+                    self.assertIsInstance(
+                        mfccs, list,
+                        f"'mfccs' in drum event at index {i} is not a list."
+                    )
+                    self.assertEqual(
+                        len(mfccs), 13,
+                        f"'mfccs' in drum event at index {i} does not have 13 elements."
+                    )
+                    for j, mfcc_value in enumerate(mfccs):
+                        self.assertIsInstance(
+                            mfcc_value, float,
+                            f"MFCC value at index {j} in drum event at index {i} is not a float."
+                        )
+            print("Drum analysis data structure appears valid.")
+
             # --- Validate audio_url and original_filename ---
             print(f"Audio URL: {final_job_result_data["audio_url"]}")
             self.assertIn("audio_url", final_job_result_data)

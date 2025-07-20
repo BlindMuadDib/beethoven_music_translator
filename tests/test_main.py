@@ -15,7 +15,7 @@ from unittest.mock import patch, MagicMock
 from musictranslator import main
 from musictranslator.main import app
 
-ACCESS_CODE = 'NH009_GBF45_DBV88_NFD'
+ACCESS_CODE = ''
 mock_valid_codes = {ACCESS_CODE}
 
 class TestMain(unittest.TestCase):
