@@ -58,6 +58,8 @@ This project would not be possible without the contributions of:
 - [Demucs](https://github.com/adefossez/demucs), for their open-source music source separation library.
 - [Montreal Forced Aligner](https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner), for their alignment tools.
 - [Librosa](https://github.com/librosa/librosa), for their open-source audio analysis tools.
+- [FreeSound](https://freesound.org), for their free database of Creative Commons and similarly licensed audio samples.
+- [CVLTIV8R](https://freesound.org/people/CVLTIV8R/), for his/her/their contribution of instrument samples.
 
 Thank you to the developers and maintainers of these invaluable tools.
 
