@@ -25,7 +25,9 @@ describe('F0Tracker Class', () => {
     beforeEach(() => {
         mockCtx = {
             clearRect: jest.fn(),
+            fillRect: jest.fn(),
             fillText: jest.fn(),
+            measureText: jest.fn(() => ({ width: 10 })),
             beginPath: jest.fn(),
             arc: jest.fn(),
             fill: jest.fn(),
@@ -43,6 +45,8 @@ describe('F0Tracker Class', () => {
             getContext: jest.fn().mockReturnValue(mockCtx),
             offsetWidth: 600,
             offsetHeight: 200,
+            width: 500,
+            height: 300,
         };
         f0Data = {
             // This is what the API returns under 'f0_analysis'
@@ -71,6 +75,7 @@ describe('F0Tracker Class', () => {
         // Assert that it draws the grid lines and labels
         expect(mockCtx.fillText).toHaveBeenCalledWith(expect.stringMatching(/Hz/), expect.any(Number), expect.any(Number));
         expect(mockCtx.lineTo).toHaveBeenCalled();
+        expect(mockCtx.fillRect).toHaveBeenCalled();
         expect(mockCtx.fillText).toHaveBeenCalledWith(expect.stringContaining('vocals'), expect.any(Number), expect.any(Number));
         expect(mockCtx.fillText).toHaveBeenCalledWith(expect.stringContaining('bass'), expect.any(Number), expect.any(Number));
     });

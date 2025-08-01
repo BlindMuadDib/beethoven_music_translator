@@ -17,16 +17,16 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: docker.io/blindmuaddib/beethoven:0.0.8
+          image: docker.io/blindmuaddib/beethoven:latest
           ports:
             - containerPort: 80
           resources:
             requests:
-              cpu: "500m"
-              memory: "1Gi"
+              cpu: "100m"
+              memory: "256Mi"
             limits:
-              cpu: "2"
-              memory: "8Gi"
+              cpu: "500m"
+              memory: "2Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/audio

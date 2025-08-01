@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: music-translator-container
-          image: docker.io/blindmuaddib/music-translator:0.0.8
+          image: docker.io/blindmuaddib/music-translator:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 20005
@@ -26,11 +26,11 @@ spec:
               value: "6379"
           resources:
             requests:
-              cpu: "500m"
-              memory: "2Gi"
+              cpu: "200m"
+              memory: "1Gi"
             limits:
-              cpu: "2"
-              memory: "8Gi"
+              cpu: "1.5"
+              memory: "6Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/audio

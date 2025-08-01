@@ -154,6 +154,44 @@ def test_translate_endpoint_post_success(
         }
     }
 
+    mock_drum_analysis_data = {
+        "hits": [
+            {
+                "onset_time": 0.5,
+                "duration": 0.1,
+                "relative_volume": 0.123,
+                "dominant_frequency": 440.0,
+                "spectral_centroid": 500.0,
+                "spectral_rolloff": 1500.0,
+                "spectral_flux": 0.05,
+                "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+                "drum_category": "snare",
+                "category_confidence": 0.94,
+                "drum_type": "open_band",
+                "type_confidence": 0.95,
+                "qualifier": "rimshot",
+                "qualifier_confidence": 0.99
+            },
+            {
+                "onset_time": 1.2,
+                "duration": 0.08,
+                "relative_volume": 0.098,
+                "dominant_frequency": 220.0,
+                "spectral_centroid": 300.0,
+                "spectral_rolloff": 1000.0,
+                "spectral_flux": 0.03,
+                "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                "drum_category": "kick",
+                "category_confidence": 0.99,
+                "drum_type": "bass",
+                "type_confidence": 0.98,
+                "qualifier": "no_qualifier",
+                "qualifier_confidence": 1.0
+            }
+        ],
+        "tempo": 180.0
+    }
+
     data = {
         'audio': (audio_data, os.path.basename(audio_file_path)),
         'lyrics': (lyrics_data, os.path.basename(lyrics_file_path)),
@@ -192,6 +230,7 @@ def test_translate_endpoint_post_success(
         "mapped_result": expected_mapped_results,
         "f0_analysis": mock_f0_analysis_data,
         "volume_analysis": mock_volume_analysis_data,
+        "drum_analysis": mock_drum_analysis_data,
         "audio_url": expected_audio_url,
         "original_filename": "BloodCalcification-SkinDeep.wav"
     }
@@ -250,6 +289,7 @@ def test_get_results_success_volume_error(
         "mapped_result": expected_mapped_results,
         "f0_analysis": {}, # Assume f0 was fine
         "volume_analysis": volume_error_report,
+        "drum_analysis": [],
         "audio_url": "/files/some_audio.wav",
         "original_filename": "audio.wav"
     }
@@ -303,6 +343,7 @@ def test_get_results_success_f0_error(
         "mapped_results": expected_mapped_results,
         "f0_analysis": f0_error_report,
         "volume_analysis": expected_volume_results,
+        "drum_analysis": [],
         "audio_url": "/files/some_audio.wav",
         "original_filename": "audio.wav"
     }

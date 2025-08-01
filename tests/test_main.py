@@ -279,11 +279,49 @@ class TestMain(unittest.TestCase):
                 "bass": {"rms_values": [[0.0, 0.1], [0.02, 0.11]]}
             }
         }
+        expected_drum_analysis = {
+            "hits": [
+                {
+                    "onset_time": 0.5,
+                    "duration": 0.1,
+                    "relative_volume": 0.123,
+                    "dominant_frequency": 440.0,
+                    "spectral_centroid": 500.0,
+                    "spectral_rolloff": 1500.0,
+                    "spectral_flux": 0.05,
+                    "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+                    "drum_category": "snare",
+                    "category_confidence": 0.94,
+                    "drum_type": "open_band",
+                    "type_confidence": 0.95,
+                    "qualifier": "rimshot",
+                    "qualifier_confidence": 0.99
+                },
+                {
+                    "onset_time": 1.2,
+                    "duration": 0.08,
+                    "relative_volume": 0.098,
+                    "dominant_frequency": 220.0,
+                    "spectral_centroid": 300.0,
+                    "spectral_rolloff": 1000.0,
+                    "spectral_flux": 0.03,
+                    "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                    "drum_category": "kick",
+                    "category_confidence": 0.99,
+                    "drum_type": "bass",
+                    "type_confidence": 0.98,
+                    "qualifier": "no_qualifier",
+                    "qualifier_confidence": 1.0
+                }
+            ],
+            "tempo": 180.0
+        }
 
         expected_result = {
             "mapped_result": expected_mapped_result,
             "f0_analysis": expected_f0,
             "volume_analysis": expected_volume,
+            "drum_analysis": expected_drum_analysis,
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
         }
@@ -387,6 +425,7 @@ class TestMain(unittest.TestCase):
             "mapped_result": expected_mapped_lyrics,
             "f0_analysis": {}, # Assume f0 was fine
             "volume_analysis": volume_error_report,
+            "drum_analysis": [],
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
         }
@@ -428,6 +467,7 @@ class TestMain(unittest.TestCase):
             "mapped_result": expected_mapped_lyrics,
             "f0_analysis": f0_error_report,
             "volume_analysis": expected_volume,
+            "drum_analysis": [],
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
         }
@@ -470,6 +510,7 @@ class TestMain(unittest.TestCase):
             "mapped_result": expected_mapped_lyrics,
             "f0_analysis": f0_no_stems_info,
             "volume_analysis": expected_volume,
+            "drum_analysis": [],
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
         }
@@ -522,6 +563,7 @@ class TestMain(unittest.TestCase):
     @patch('musictranslator.main.align_lyrics')
     @patch('musictranslator.main.request_f0_analysis')
     @patch('musictranslator.main.request_volume_analysis')
+    @patch('musictranslator.main.request_drum_analysis')
     @patch('musictranslator.main.map_transcript')
     @patch('musictranslator.main.get_current_job')
     @patch('threading.Thread')
@@ -530,6 +572,7 @@ class TestMain(unittest.TestCase):
         mock_thread_class,
         mock_get_job,
         mock_map,
+        mock_req_drum,
         mock_req_volume,
         mock_req_f0,
         mock_align_lyrics,
@@ -555,6 +598,43 @@ class TestMain(unittest.TestCase):
         mock_req_volume.return_value = {
             "overall_rms": [[0.0, 0.15]],
             "instruments": {"vocals": {"rms_values": [[0.0, 0.2]]}}
+        }
+        mock_req_drum.return_value = {
+            "hits": [
+                {
+                    "onset_time": 0.5,
+                    "duration": 0.1,
+                    "relative_volume": 0.123,
+                    "dominant_frequency": 440.0,
+                    "spectral_centroid": 500.0,
+                    "spectral_rolloff": 1500.0,
+                    "spectral_flux": 0.05,
+                    "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+                    "drum_category": "snare",
+                    "category_confidence": 0.94,
+                    "drum_type": "open_band",
+                    "type_confidence": 0.95,
+                    "qualifier": "rimshot",
+                    "qualifier_confidence": 0.99
+                },
+                {
+                    "onset_time": 1.2,
+                    "duration": 0.08,
+                    "relative_volume": 0.098,
+                    "dominant_frequency": 220.0,
+                    "spectral_centroid": 300.0,
+                    "spectral_rolloff": 1000.0,
+                    "spectral_flux": 0.03,
+                    "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                    "drum_category": "kick",
+                    "category_confidence": 0.99,
+                    "drum_type": "bass",
+                    "type_confidence": 0.98,
+                    "qualifier": "no_qualifier",
+                    "qualifier_confidence": 1.0
+                }
+            ],
+            "tempo": 180.0
         }
         mock_map.return_value = [{
             'line_text': 'example line',
@@ -624,19 +704,22 @@ class TestMain(unittest.TestCase):
         expected_volume_payload = {"song": "/fake/audio.wav", **mock_split.return_value}
         mock_req_volume.assert_called_once_with(expected_volume_payload)
 
+        mock_req_drum.assert_called_once_with(mock_split.return_value.get("drums"))
+
         mock_map.assert_called_once_with("/fake/alignment.json", "/fake/lyrics.txt")
 
         expected_final_result = {
             "mapped_result": mock_map.return_value,
             "f0_analysis": mock_req_f0.return_value,
             "volume_analysis": mock_req_volume.return_value,
+            "drum_analysis": mock_req_drum.return_value,
             "audio_url": "api/files/jobid_audio.wav",
             "original_filename": "audio.wav"
         }
         self.assertEqual(result, expected_final_result)
 
         # Verify that the two Thread instances were created
-        self.assertEqual(mock_thread_class.call_count, 3)
+        self.assertEqual(mock_thread_class.call_count, 4)
 
     def test_delete_audio_file_success(self):
         """Tests the DELETE /api/cleanup/<filename> endpoint."""

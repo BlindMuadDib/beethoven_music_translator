@@ -2,30 +2,33 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: f0-deployment
+  name: drums-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: f0-client
+      app: drums-client
   template:
     metadata:
       labels:
-        app: f0-client
+        app: drums-client
     spec:
       containers:
-        - name: f0-client-container
-          image: docker.io/blindmuaddib/f0-endpoint:1.2
+        - name: drums-client-container
+          image: docker.io/blindmuaddib/drums-endpoint:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 20006
+            - containerPort: 25941
+          env:
+            - name: DRUMS_CPU_WORKERS
+              value: "8"
           resources:
             requests:
-              cpu: "2"
-              memory: "6Gi"
-            limits:
               cpu: "4"
               memory: "16Gi"
+            limits:
+              cpu: "8"
+              memory: "28Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/separator_output
@@ -34,4 +37,5 @@ spec:
         - name: shared-data
           persistentVolumeClaim:
             claimName: shared-data-pvc
+
 
