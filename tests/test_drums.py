@@ -28,7 +28,13 @@ class TestDrumsClient(unittest.TestCase):
                 "spectral_centroid": 500.0,
                 "spectral_rolloff": 1500.0,
                 "spectral_flux": 0.05,
-                "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0]
+                "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+                "drum_category": "snare",
+                "category_confidence": 0.9,
+                "drum_type": "closed_band",
+                "type_confidence": "0.95",
+                "qualifier": "brush",
+                "qualifier_confidence": 0.93
             },
             {
                 "onset_time": 1.2,
@@ -38,7 +44,13 @@ class TestDrumsClient(unittest.TestCase):
                 "spectral_centroid": 300.0,
                 "spectral_rolloff": 1000.0,
                 "spectral_flux": 0.03,
-                "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]
+                "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                "drum_category": "kick",
+                "category_confidence": "bass",
+                "drum_type": "bass",
+                "type_confidence": 0.98,
+                "qualifier": "no_qualifier",
+                "qualifier_confidence": 1.0
             }
         ]
         mock_response.json.return_value = expected_drums_data

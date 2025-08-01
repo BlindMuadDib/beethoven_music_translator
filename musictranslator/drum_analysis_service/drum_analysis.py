@@ -1,15 +1,46 @@
 import os
 import logging
 import concurrent
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import librosa
 import librosa.display
 import soundfile as sf
 
 # Setup basic logging
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+# --- Globals for the analysis worker processes
+_worker_y: np.ndarray | None = None
+_worker_sr: int | None = None
+
+def _init_analysis_worker(y: np.ndarray, sr: int):
+    """Initializer for the feature extraction process pool."""
+    global _worker_y, _worker_sr
+    _worker_y = y
+    _worker_sr = sr
+    logger.info("Feature extraction worker process initialized.")
+
+def _estimate_tempo_worker() -> float:
+    """Worker task for tempo estimation, using global audio data."""
+    if _worker_y is None or _worker_sr is None:
+        return 0.0
+    return estimate_tempo(_worker_y, _worker_sr)
+
+def _process_single_onset_worker(
+    onset_args: tuple[float, float | None]
+) -> dict | None:
+    """
+    Worker task for feature extraction, using global audio data.
+    Only takes one onset as an argument.
+    """
+    if _worker_y is None or _worker_sr is None:
+        return None
+
+    current_onset_time, next_onset_time = onset_args
+    return _process_single_onset(
+        _worker_y, _worker_sr, current_onset_time, next_onset_time
+    )
 
 def load_audio_from_file(file_path: str) -> tuple[np.ndarray, int]:
     """
@@ -24,7 +55,7 @@ def load_audio_from_file(file_path: str) -> tuple[np.ndarray, int]:
     """
     if not os.path.exists(file_path):
         logger.error("Audio file not found: %s", file_path)
-        raise FileNotFoundError("Audio file not found: %s", file_path)
+        raise FileNotFoundError(f"Audio file not found: {file_path}")
 
     try:
         # sr=None preserves the original sr, mono=True converts to mono
@@ -68,7 +99,7 @@ def detect_onsets(y: np.ndarray, sr: int) -> list[float]:
         onset_frames = librosa.onset.onset_detect(
             onset_envelope=onset_env,
             sr=sr,
-            wait=5,
+            wait=1,
             pre_max=3,
             post_max=3,
             delta=.1
@@ -88,7 +119,7 @@ def detect_onsets(y: np.ndarray, sr: int) -> list[float]:
 def extract_dynamic_segment(
     y: np.ndarray, sr: int, current_onset_time: float,
     next_onset_time: float = None,
-    max_duration: float = 3.0,
+    max_duration: float = 5.0,
     decay_threshold_db: float = -30.0
 ) -> np.ndarray:
     """
@@ -106,16 +137,13 @@ def extract_dynamic_segment(
     onset_sample = librosa.time_to_samples(current_onset_time, sr=sr)
     start_sample = max(0, int(onset_sample))
 
-    # Determine potential end sample based on next onset or max duration
-    end_sample_by_next_onset = len(y)
-    if next_onset_time is not None:
-        end_sample_by_next_onset = min(len(y), librosa.time_to_samples(next_onset_time, sr=sr))
-
     end_sample_by_max_duration = min(len(y), start_sample + int(max_duration * sr))
 
     # Initialize end_sample based on the earliest of the three constraints
     # (actual end of audio, end_sample_by_next_onset, end_sample_by_max_duration)
-    current_segment_end_candidate = min(len(y), end_sample_by_next_onset, end_sample_by_max_duration)
+    current_segment_end_candidate = min(
+        len(y), end_sample_by_max_duration
+    )
 
     # If the current onset is at or beyond the end of the audio, or leads to an empty segment, return empty
     if current_segment_end_candidate <= start_sample:
@@ -165,7 +193,7 @@ def extract_dynamic_segment(
             logger.debug(f"Onset at {current_onset_time:.2f}s decayed at approx {librosa.samples_to_time(start_sample + decay_end_sample_relative, sr=sr):.2f}s.")
             break
 
-    # The actual end sample is the minimum of (decay_end, next_onset_time, max_duration)
+    # The actual end sample is the minimum of (decay_end, max_duration)
     final_end_sample = min(
         # This already incorporates next_onset_time and max_duration
         current_segment_end_candidate,
@@ -252,65 +280,97 @@ def extract_features_from_segment(segment: np.ndarray, sr: int) -> dict:
     logger.debug(f"Extracted features for segment (len={len(segment)/sr:.2f}s): {features}")
     return features
 
-def analyze_audio_concurrently(y: np.ndarray, sr: int) -> list[dict]:
+def estimate_tempo(y: np.ndarray, sr: int) -> float:
     """
-    Orchestrates the drum analysis: detects onsets and extracts features concurrently.
+    Estimates the overall tempo (BPM) of the audio track.
+    Ars:
+        y (np.ndarray): Full audio time series.
+        sr (int): Sampling rate.
+    Returns:
+        float: Estimated tempo in beats per minute (BPM).
+               Returns 0.0 if tempo cannot be reliably estimated.
+    """
+    logger.info("Starting tempo estimation.")
+    try:
+        # Compute onset strength envelope for tempo estimation
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+
+        # Estimate the tempo from the onset strength envelope
+        tempo, _ = librosa.beat.beat_track(
+            onset_envelope=onset_env, sr=sr
+        )
+
+        # tempo is typically a float (e.g., 120.0). Convert to float
+        estimated_tempo = float(tempo)
+        logger.info("Estimated tempo: %.2f BPM", estimated_tempo)
+        return estimated_tempo
+    except Exception as e:
+        logger.critical("Error during tempo estimation: %s",
+                        e, exc_info=True)
+        return 0.0
+
+def analyze_audio_concurrently(
+    y: np.ndarray, sr: int
+) -> dict:
+    """
+    Analyzes audio by creating a dedicated process pool to efficiently
+    share the audio data among workers.
     Args:
         y (np.ndarray): Full audio time series.
         sr (int): Sampling rate.
     Returns:
-        list[dict]: A list of dictionaries, each representing a detected drum hit with its features.
+        dict: A dictionary container 'hits' and 'tempo'.
     """
-    onset_times = detect_onsets(y, sr)
-    if not onset_times:
-        logger.info("No onsets detected in the audio.")
-        return []
+    logger.info("Starting concurrent audio analysis.")
 
-    analysis_results = []
+    # Use a 'with' statement to create a temporary exuctor for this
+    # specific audio file. It's initialized with the audio data, so
+    # we don't need to pickly it repeatedly.
+    with ProcessPoolExecutor(initializer=_init_analysis_worker,
+                             initargs=(y, sr)) as executor:
+        # Submit tempo estimation task using the worker global 'y'
+        tempo_future = executor.submit(_estimate_tempo_worker)
+        logger.debug("Tempo estimation future submitted.")
 
-    # Prepare arguments for each concurrent task
-    tasks = []
-    for i, current_onset_time in enumerate(onset_times):
-        next_onset_time = onset_times[i+1] if i + 1 < len(onset_times) else None
-        tasks.append((current_onset_time, next_onset_time))
+        onset_times = detect_onsets(y, sr)
+        if not onset_times:
+            logger.info("No onsets detected in the audio.")
+            # Get tempo even if no hits
+            return {
+                "hits": [],
+                "tempo": tempo_future.result()
+            }
 
-    # Use ThreadPoolExecutor for concurrent feature extraction
-    # The default number of workers (often CPU count * 5) is usually good for I/O-bound
-    # or mixed tasks like this where C-extensions release the GIL.
-    with ThreadPoolExecutor() as executor:
-        futures = {}
-        for current_onset_time, next_onset_time in tasks:
-            # Submit feature extraction for this segment to the thread pool
-            future = executor.submit(
-                _process_single_onset,
-                y, sr, current_onset_time, next_onset_time
-            )
-            futures[future] = current_onset_time # Map future back to its onset time
+        # Prepare tasks for feature extraction
+        tasks = [
+            (onset_times[i], onset_times[i + 1] if i + 1 < len(onset_times) else None)
+            for i in range(len(onset_times))
+        ]
 
-        for future in concurrent.futures.as_completed(futures):
-            onset_time = futures[future]
-            try:
-                result_data = future.result()
-                # Add onset time to the features dict for the final output
-                if result_data: # Only add if the segment wasn't empty
-                    analysis_results.append(result_data)
-            except Exception as exc:
-                logger.critical(
-                    f'Onset at {onset_time:.2f}s generated an exception: {exc}',
-                    exc_info=True
-                    )
+        analysis_results = []
+        # Use executor.map for clean, efficient processing.
+        # It automatically handles submitting tasks and collecting
+        # results. We filter out None results from empty segments.
+        results_iterator = executor.map(_process_single_onset_worker,
+                                        tasks)
+        analysis_results = [res for res in results_iterator if res is not None]
 
-    # Sort results by onset time for consistent output
-    analysis_results.sort(key=lambda x: x['onset_time'])
-    logger.info("Completed analysis of %s drum hits.", len(analysis_results))
-    return analysis_results
+        # Sort results by onset time for consistent output
+        analysis_results.sort(key=lambda x: x['onset_time'])
+        logger.info("Completed analysis of %d drum hits.", len(analysis_results))
+
+        # Get the result from the tempo future
+        overall_tempo_bpm = tempo_future.result()
+        logger.info("Overall tempo retrieved: %s BPM", overall_tempo_bpm)
+
+        return {
+            "hits": analysis_results,
+            "tempo": overall_tempo_bpm
+        }
 
 # --- Helper Function ---
 def _process_single_onset(
-    y: np.ndarray,
-    sr: int,
-    current_onset_time: float,
-    next_onset_time: float
+    y: np.ndarray, sr: int, current_onset_time: float, next_onset_time: float | None
 ) -> dict | None:
     """Helper function for concurrent execution."""
     try:

@@ -232,13 +232,13 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                 if isinstance(result, dict) and "error" in result:
                     thread_results_shared["drum_error"] = result["error"]
                     logger.error(f"Drum-Thread: Drum service error - %s", result["error"])
-                elif not isinstance(result, list):
+                elif isinstance(result, dict) and "hits" in result:
+                    thread_results_shared["drum_analysis_data"] = result
+                    logger.info("Drum-Thread: Drum analysis successful")
+                else:
                     err_msg = f"Drum analysis returned unexpected data type: {type(result)}"
                     thread_results_shared["drum_error"] = err_msg
                     logger.error("Drum-Thread: %s", err_msg)
-                else:
-                    thread_results_shared["drum_analysis_data"] = result
-                    logger.info("Drum-Thread: Drum analysis successful.")
             except Exception as e:
                 logger.error("Drum-Thread: Exception - %s", e, exc_info=True)
                 thread_results_shared["drum_error"] = str(e)
@@ -299,7 +299,8 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                 "error": thread_results_shared["drum_error"],
                 "info": "Drum analysis did not complete successfully."
             }
-        drum_analysis_result = thread_results_shared["drum_analysis_data"]
+        else:
+            drum_analysis_result = thread_results_shared["drum_analysis_data"]
         logger.info("Step 2.4 (Drum Analysis) Complete.")
 
         # --- 3. Map Transcript and Combine Results ---

@@ -72,6 +72,43 @@ describe('App End-to-End User Flow Integration', () => {
                     "time_interval": 0.01
                 },
             },
+            "volume_analysis": {
+                "overall_rms": [[0.01, 0.5], [0.02, 0.7]],
+                "instruments": {
+                    "vocals": {
+                        "rms_values": [[0.01, 0.4], [0.02, 0.3]]
+                    },
+                    "bass": {
+                        "rms_values": [[0.01, 0.3], [0.02, 0.4]]
+                    },
+                }
+            },
+            "drum_analysis": [
+                {
+                    "onset_time": 0.5,
+                    "duration": 0.1,
+                    "relative_volume": 0.123,
+                    "dominant_frequency": 440.0,
+                    "spectral_centroid": 500.0,
+                    "spectral_rolloff": 1500.0,
+                    "spectral_flux": 0.05,
+                    "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+                    "drum_type": "snare_drum",
+                    "confidence": 0.95
+                },
+                {
+                    "onset_time": 1.2,
+                    "duration": 0.08,
+                    "relative_volume": 0.098,
+                    "dominant_frequency": 220.0,
+                    "spectral_centroid": 300.0,
+                    "spectral_rolloff": 1000.0,
+                    "spectral_flux": 0.03,
+                    "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                    "drum_type": "bass_drum",
+                    "confidence": 0.90
+                },
+            ],
             "audio_url": "/shared-data/audio/123-test.wav",
             "original_filename": "Test.wav"
         } });
@@ -111,6 +148,43 @@ describe('App End-to-End User Flow Integration', () => {
                     "time_interval": 0.01
                 },
             },
+            "volume_analysis": {
+                "overall_rms": [[0.01, 0.5], [0.02, 0.7]],
+                "instruments": {
+                    "vocals": {
+                        "rms_values": [[0.01, 0.4], [0.02, 0.3]]
+                    },
+                    "bass": {
+                        "rms_values": [[0.01, 0.3], [0.02, 0.4]]
+                    },
+                }
+            },
+            "drum_analysis": [
+                {
+                    "onset_time": 0.5,
+                    "duration": 0.1,
+                    "relative_volume": 0.123,
+                    "dominant_frequency": 440.0,
+                    "spectral_centroid": 500.0,
+                    "spectral_rolloff": 1500.0,
+                    "spectral_flux": 0.05,
+                    "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+                    "drum_type": "snare_drum",
+                    "confidence": 0.95
+                },
+                {
+                    "onset_time": 1.2,
+                    "duration": 0.08,
+                    "relative_volume": 0.098,
+                    "dominant_frequency": 220.0,
+                    "spectral_centroid": 300.0,
+                    "spectral_rolloff": 1000.0,
+                    "spectral_flux": 0.03,
+                    "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                    "drum_type": "bass_drum",
+                    "confidence": 0.90
+                },
+            ],
             "audio_url": "/shared-data/audio/123-test.wav",
             "original_filename": "Test.wav"
         }, expect.any(Function), mockPlayer);
@@ -158,6 +232,32 @@ describe('App End-to-End User Flow Integration', () => {
                     "time_interval": 0.01
                 },
             },
+            "drum_analysis": [
+                {
+                    "onset_time": 0.5,
+                    "duration": 0.1,
+                    "relative_volume": 0.123,
+                    "dominant_frequency": 440.0,
+                    "spectral_centroid": 500.0,
+                    "spectral_rolloff": 1500.0,
+                    "spectral_flux": 0.05,
+                    "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+                    "drum_type": "snare_drum",
+                    "confidence": 0.95
+                },
+                {
+                    "onset_time": 1.2,
+                    "duration": 0.08,
+                    "relative_volume": 0.098,
+                    "dominant_frequency": 220.0,
+                    "spectral_centroid": 300.0,
+                    "spectral_rolloff": 1000.0,
+                    "spectral_flux": 0.03,
+                    "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                    "drum_type": "bass_drum",
+                    "confidence": 0.90
+                },
+            ],
             "audio_url": "/shared-data/audio/123-test.wav",
             "original_filename": "Test.wav"
         } });

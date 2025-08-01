@@ -19,13 +19,16 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 25941
+          env:
+            - name: DRUMS_CPU_WORKERS
+              value: "8"
           resources:
             requests:
-              cpu: "2"
-              memory: "8Gi"
-            limits:
               cpu: "4"
               memory: "16Gi"
+            limits:
+              cpu: "8"
+              memory: "28Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/separator_output

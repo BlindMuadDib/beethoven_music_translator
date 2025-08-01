@@ -101,7 +101,7 @@ describe('API Module', () => {
 
         const pollPromise = pollJobStatus('job-123', jest.fn());
 
-        await jest.runOnlyPendingTimersAsync();
+        jest.runOnlyPendingTimersAsync();
 
         // Assert the promise rejects with the correct error message
         await expect(pollPromise).rejects.toThrow('Custom failure message');
@@ -112,7 +112,7 @@ describe('API Module', () => {
 
         const pollPromise = pollJobStatus('job-123', jest.fn());
 
-        await jest.runOnlyPendingTimersAsync();
+        jest.runOnlyPendingTimersAsync();
 
         await expect(pollPromise).rejects.toThrow('Error fetching results. Status: 500');
     });

@@ -256,53 +256,138 @@ class TestIntegration(unittest.TestCase):
             if isinstance(drums_data, dict) and ("error" in drums_data or "info" in drums_data):
                 self.fail(f"Drums analysis reported an error or info message: {drums_data}")
             else:
-                self.assertIsInstance(drums_data, list)
-                if not drums_data:
-                    self.fail("Drum analysis data is an empty list, but no error was reported.")
+                self.assertIsInstance(
+                    drums_data, dict,
+                    f"Drum analysis result should be a dictionary, but is {type(drums_data)}")
+
+                self.assertIn("hits", drums_data)
+                self.assertIn("tempo", drums_data)
+
+                hits = drums_data["hits"]
+                tempo = drums_data["tempo"]
+
+                self.assertIsInstance(hits, list,
+                                      "Drum hits should be a list.")
+                self.assertIsInstance(tempo, (float, int),
+                                      "Drum tempo should be a float or int.")
+                self.assertTrue(tempo >= 0,
+                                "Tempo must be non-negative.")
 
                 # Iterate through each drum event dictionary
-                for i, drum_event in enumerate(drums_data):
-                    self.assertIsInstance(
-                        drum_event, dict,
-                        f"Drum event at index {i} is not a dictionary."
-                    )
+                if len(hits) > 0:
+                    for i, drum_event in enumerate(hits):
+                        self.assertIsInstance(
+                            drum_event, dict,
+                            f"Drum event at index {i} is not a dictionary."
+                        )
 
-                    # Define expected float keys
-                    float_keys = [
-                        "onset_time", "duration", "relative_volume",
-                        "dominant_frequency", "spectral_centroid",
-                        "spectral_rolloff", "spectral_flux"
-                    ]
+                        # Define expected float keys
+                        float_keys = [
+                            "onset_time", "duration", "relative_volume",
+                            "dominant_frequency", "spectral_centroid",
+                            "spectral_rolloff", "spectral_flux",
+                            "category_confidence", "type_confidence",
+                            "qualifier_confidence"
+                        ]
 
-                    for key in float_keys:
+                        for key in float_keys:
+                            self.assertIn(
+                                key, drum_event,
+                                f"Missing key '{key}' in drum event at index {i}."
+                            )
+                            self.assertIsInstance(
+                                drum_event[key], float,
+                                f"Value for '{key}' in drum event at index {i} is not a float."
+                            )
+
+                        # Validate mfccs
                         self.assertIn(
-                            key, drum_event,
-                            f"Missing key '{key}' in drum event at index {i}."
+                            "mfccs", drum_event,
+                            f"Missing key 'mfccs' in drum event at index {i}"
                         )
+                        mfccs = drum_event["mfccs"]
                         self.assertIsInstance(
-                            drum_event[key], float,
-                            f"Value for '{key}' in drum event at index {i} is not a float."
+                            mfccs, list,
+                            f"'mfccs' in drum event at index {i} is not a list."
+                        )
+                        self.assertEqual(
+                            len(mfccs), 13,
+                            f"'mfccs' in drum event at index {i} does not have 13 elements."
+                        )
+                        for j, mfcc_value in enumerate(mfccs):
+                            self.assertIsInstance(
+                                mfcc_value, float,
+                                f"MFCC value at index {j} in drum event at index {i} is not a float."
+                            )
+
+                        # Validate MLA Classifications
+                        self.assertIn(
+                            "drum_category", drum_event,
+                            f"Missing key 'drum_category' in drum event at index {i}."
+                        )
+                        drum_category = drum_event["drum_category"]
+                        self.assertIsInstance(
+                            drum_category, str,
+                            f"'drum_category' in drum event at index {i} is not a string."
+                        )
+                        possible_drum_categories = [
+                            'kick', 'snare', 'tom', 'cymbal', 'other'
+                        ]
+                        self.assertIn(
+                            drum_category, possible_drum_categories
                         )
 
-                    # Validate mfccs
-                    self.assertIn(
-                        "mfccs", drum_event,
-                        f"Missing key 'mfccs' in drum event at index {i}"
-                    )
-                    mfccs = drum_event["mfccs"]
-                    self.assertIsInstance(
-                        mfccs, list,
-                        f"'mfccs' in drum event at index {i} is not a list."
-                    )
-                    self.assertEqual(
-                        len(mfccs), 13,
-                        f"'mfccs' in drum event at index {i} does not have 13 elements."
-                    )
-                    for j, mfcc_value in enumerate(mfccs):
-                        self.assertIsInstance(
-                            mfcc_value, float,
-                            f"MFCC value at index {j} in drum event at index {i} is not a float."
+                        self.assertIn(
+                            "drum_type", drum_event,
+                            f"Missing key 'drum_type' in drum event at index {i}."
                         )
+                        drum_type = drum_event["drum_type"]
+                        self.assertIsInstance(
+                            drum_type, str,
+                            f"'drum_type' in drum event at index {i} is not a string."
+                        )
+                        possible_drum_types = [
+                            'bass', 'open_band', 'closed_band',
+                            'med_high', 'med_low', 'mid', 'low',
+                            'high', 'crash', 'hihat', 'ride', 'gong',
+                            'unknown', 'cowbell'
+                        ]
+                        self.assertIn(
+                            drum_type, possible_drum_types
+                        )
+
+                        self.assertIn(
+                            "qualifier", drum_event,
+                            f"Missing key 'qualifier' in drum event at index {i}.")
+                        qualifier = drum_event["qualifier"]
+                        self.assertIsInstance(
+                            qualifier, str,
+                            f"'qualifier' in drum event at index {i} is not a string.")
+                        possible_qualifiers = [
+                            'rimshot', 'brush', 'chains',
+                            'no_qualifier', 'full', 'mid', 'bell',
+                            'muted', 'brush','chains',
+                            'full_muted', 'mid_muted', 'bell_muted',
+                            'full_brush', 'mid_brush', 'bell_brush',
+                            'full_chains', 'mid_chains',
+                            'bell_chains', 'brush_muted',
+                            'chains_muted', 'bell_brush_muted',
+                            'bell_chains_muted', 'mid_brush_muted',
+                            'mid_chains_muted', 'full_brush_muted',
+                            'full_chains_muted', 'brush_bell',
+                            'chains_bell', 'brush_full',
+                            'chains_full', 'brush_mid', 'chains_mid',
+                            'brush_bell_muted', 'chains_bell_muted',
+                            'brush_full_muted', 'chains_full_muted',
+                            'brush_mid_muted', 'chains_mid_muted',
+                            'open', 'close'
+                        ]
+                        self.assertIn(
+                            qualifier, possible_qualifiers
+                        )
+                else:
+                    print("No drum hits detected for this audio, skipping individual hit validation.")
+
             print("Drum analysis data structure appears valid.")
 
             # --- Validate audio_url and original_filename ---

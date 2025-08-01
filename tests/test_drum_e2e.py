@@ -4,10 +4,10 @@ import io
 import json
 import time
 import threading
-import time
 import pathlib
 import requests
 import pytest
+import numpy as np
 import podman
 from podman.errors.exceptions import NotFound
 
@@ -95,14 +95,21 @@ def drum_analysis_container(podman_client, setup_shared_data):
     """
     container = None
     log_buffer = io.StringIO() # Buffer to store captured logs
+    log_thread = None
+
+    # Flag to signal the log reader to stop
+    stop_log_thread = threading.Event()
 
     # Thread to continuously read logs
-    def read_container_logs(container_obj, buffer):
+    def read_container_logs(container_obj, buffer, stop_event):
         print("\n[Log Reader] Starting log reader thread...")
         try:
             # stream=True is crucial here to get live updates
             # follow=True will keep streaming until container stops or connection breaks
             for line in container_obj.logs(stream=True, follow=True):
+                if stop_event.is_set():
+                    print("[Log Reader] Stop event received, exiting.")
+                    break
                 try:
                     decoded_line = line.decode('utf-8').strip()
                     buffer.write(decoded_line + "\n")
@@ -146,7 +153,8 @@ def drum_analysis_container(podman_client, setup_shared_data):
             target=read_container_logs,
             args=(
                 container,
-                log_buffer
+                log_buffer,
+                stop_log_thread
             ),
             daemon=True
         )
@@ -157,12 +165,14 @@ def drum_analysis_container(podman_client, setup_shared_data):
 
         # Wait for the service to be healthy
         max_retries = 60
+        service_healthy = False
         for i in range(max_retries):
             try:
                 print(f"Attempt {i+1}/{max_retries}: Checking health at {HEALTH_CHECK_URL}...")
                 response = requests.get(HEALTH_CHECK_URL, timeout=5)
                 if response.status_code == 200 and response.json().get("status") == "OK":
                     print("Service is healthy!")
+                    service_healthy = True
                     break
             except requests.exceptions.ConnectionError as e:
                 print(f"ConnectionError: {e}")
@@ -170,27 +180,46 @@ def drum_analysis_container(podman_client, setup_shared_data):
             except requests.exceptions.Timeout:
                 print("Health check timed out.")
             time.sleep(2)
-        else:
+            # Check if container is still running if connection fails
+            try:
+                container.reload()
+                if container.status != 'running':
+                    print(f"Container exited prematurely with status: {container.status}. Checking logs...")
+                    # Print logs immediately if container exited
+                    print(f"\n--- Container '{container.name}' Logs (Container Exited) ---")
+                    print(log_buffer.getvalue())
+                    pytest.fail(f"Drum analysis service container exited prematurely. Status: {container.status}")
+            except NotFound:
+                print(f"Container '{container.name}' not found during health check, it likely crashed and removed itself.")
+                print(f"\n--- Container '{container.name}' Logs (Container Crashed and Removed) ---")
+                print(log_buffer.getvalue())
+                pytest.fail(f"Drum analysis service container crashed and was removed before becoming healthy.")
+                time.sleep
+
+        if not service_healthy:
+            # If loop finishes without service becoming healthy, print logs and fail
+            print(f"\n--- Container '{container.name}' Logs (Health Check Failed) ---")
+            print(log_buffer.getvalue())
             pytest.fail(f"Drum analysis service did not become healthy within {max_retries*2} seconds.")
 
         print(f"Audio file will be accessed directly from mounted volume at: {CONTAINER_DRUM_TRACK_PATH}")
 
         yield container # Yield the running container to the test to use
 
-    except podman.errors.ImageNotFound:
-        pytest.fail(f"Docker image '{IMAGE_NAME}' not found. Please build it first.")
     except Exception as e:
         print(f"An error occurred during container setup: {e}")
+        print(f"\n--- Container '{container.name if container else 'N/A'}' Logs (Setup Error) ---")
+        if log_buffer:
+            print(log_buffer.getvalue())
         pytest.fail(f"Failed to set up container for E2E test: {e}")
     finally:
-        print(f"--- Container '{container.name}' Final Logs ---")
-        time.sleep(1)
-        if container:
-            print(f"Stopping and removing container '{container.name}' (ID: {container.id})...")
-            container.stop(timeout=5)
-            container.remove()
-            print("Container stopped and removed")
+        # Signal the log thread to stop and wait for it
+        if log_thread and log_thread.is_alive():
+            print("[Log Reader] Signaling log thread to stop...")
+            stop_log_thread.set()
+            log_thread.join(timeout=5) # Give it a moment to finish
 
+        print(f"--- Container '{container.name}' Final Logs ---")
         # Print all captured logs from the buffer
         captured_logs = log_buffer.getvalue()
         if captured_logs:
@@ -198,8 +227,22 @@ def drum_analysis_container(podman_client, setup_shared_data):
         else:
             print("No logs were captured by the streaming thread.")
 
-        log_buffer.close()
+        if container:
+            try:
+                container.reload()
+                if container.status == 'running':
+                    print(f"Stopping and removing container '{container.name}' (ID: {container.id})...")
+                    container.stop(timeout=5)
+                    container.remove()
+                    print("Container stopped and removed")
+                else:
+                    print(f"Container '{container.name}' is already {container.status}, no need to stop/remove.")
+            except Exception as e:
+                print(f"Error during container cleanup: {e}")
+        else:
+            print("No container object to clean up.")
 
+        log_buffer.close()
         print("-------------------------------------------")
 
 
@@ -217,7 +260,7 @@ def test_e2e_drum_analysis_success(drum_analysis_container):
     }
 
     print(f"Sending POST request to {ANALYZE_DRUMS_URL} with path: {CONTAINER_DRUM_TRACK_PATH}")
-    response = requests.post(ANALYZE_DRUMS_URL, json=request_data, timeout=600)
+    response = requests.post(ANALYZE_DRUMS_URL, json=request_data, timeout=1200)
 
     print(f"Received response status code: {response.status_code}")
     # Debugging code:
@@ -229,18 +272,109 @@ def test_e2e_drum_analysis_success(drum_analysis_container):
         response_json = {}
 
     assert response.status_code == 200
-    assert isinstance(response_json, list)
-    assert len(response_json) > 0, "Expected drum hits, but got an empty list."
+    assert isinstance(response_json, dict)
 
-    # Basic structural validation of a drum hit
+    # Basic structural validation of response
     if response_json:
-        first_hit = response_json[0]
-        assert "onset_time" in first_hit
-        assert "duration" in first_hit
-        assert "relative_volume" in first_hit
-        assert "dominant_frequency" in first_hit
-        # Potentially add more specific assertions here, e.g., value ranges
-        assert isinstance(first_hit['onset_time'], (float, int))
-        assert first_hit['onset_time'] >= 0
+        drum_data = response_json
+        assert "tempo" in drum_data
+        assert "hits" in drum_data
+        assert isinstance(drum_data['hits'], list)
+
+        # Save list of hits for validation
+        hits = drum_data["hits"]
+        assert len(hits) > 0, "No drum hits were detected in the audio file."
+
+        # Iterate over each hit to validate its structure and types
+        for hit in hits:
+            assert isinstance(hit, dict)
+            assert "onset_time" in hit
+            assert "duration" in hit
+            assert "relative_volume" in hit
+            assert "dominant_frequency" in hit
+            assert "spectral_centroid" in hit
+            assert "spectral_rolloff" in hit
+            assert "spectral_flux" in hit
+            assert "mfccs" in hit
+            assert "drum_category" in hit
+            assert "category_confidence" in hit
+            assert "drum_type" in hit
+            assert "type_confidence" in hit
+            assert "qualifier" in hit
+            assert "qualifier_confidence" in hit
+
+            # Validate types and ranges for each key in the hit dict
+            assert isinstance(hit['onset_time'], (float, int))
+            assert hit['onset_time'] >= 0
+
+            assert isinstance(hit['duration'], (float, int))
+            assert hit['duration'] > 0
+
+            assert isinstance(hit['relative_volume'], (float, int))
+            assert hit['relative_volume'] >= 0
+
+            assert isinstance(hit['dominant_frequency'], (float, int))
+            assert hit['dominant_frequency'] >= 0
+
+            assert isinstance(hit["spectral_centroid"], (float, int))
+            assert hit["spectral_centroid"]
+
+            assert isinstance(hit["spectral_flux"], (float, int))
+            assert hit["spectral_flux"] >= 0
+
+            assert isinstance(hit["spectral_rolloff"], (float, int))
+            assert hit["spectral_rolloff"] >= 0
+
+            assert isinstance(hit["mfccs"], list)
+            assert len(hit['mfccs']) > 0
+
+            assert isinstance(hit['drum_category'], str)
+            assert hit['drum_category'] in [
+                'kick', 'snare', 'tom', 'cymbal', 'other'
+            ]
+            assert isinstance(hit['category_confidence'], (float, int))
+            assert 0.0 <= hit['category_confidence'] <= 1
+
+            assert isinstance(hit['drum_type'], str)
+            assert hit['drum_type'] in [
+                'bass',
+                'open_band', 'closed_band',
+                'med_high', 'med_low', 'mid', 'low', 'high',
+                'crash', 'hihat', 'ride', 'gong',
+                'cowbell', 'unknown'
+            ]
+            assert isinstance(hit['type_confidence'], (float, int))
+            assert 0.0 <= hit['type_confidence'] <= 1
+
+            assert isinstance(hit['qualifier'], str)
+            assert hit['qualifier'] in [
+                'rimshot', 'brush', 'chains', 'no_qualifier',
+                'full', 'mid', 'bell', 'muted',
+                'brush', 'chains',
+                'full_muted', 'mid_muted', 'bell_muted',
+                'full_brush', 'mid_brush', 'bell_brush',
+                'full_chains', 'mid_chains', 'bell_chains',
+                'brush_muted', 'chains_muted',
+                'bell_brush_muted', 'bell_chains_muted',
+                'mid_brush_muted', 'mid_chains_muted',
+                'full_brush_muted', 'full_chains_muted',
+                'open', 'close', 'muted', 'brush', 'chains',
+                'open_muted', 'close_muted',
+                'open_brush', 'open_chains',
+                'close_brush', 'close_chains',
+                'brush_muted', 'chains_muted',
+                'open_brush_muted', 'close_brush_muted',
+                'brush_open', 'brush_close',
+                'chains_open', 'chains_close',
+                'brush_muted_open', 'brush_muted_close',
+                'chains_muted_open', 'brush_muted_close'
+                'no_qualifier'
+            ]
+            assert isinstance(hit['qualifier_confidence'], (float, int))
+            assert 0.0 <= hit['qualifier_confidence'] <= 1
+
+        # Validate tempo type
+        assert isinstance(drum_data['tempo'], (float, int))
+        assert drum_data['tempo'] >= 0
 
     print("E2E test successful: Drum analysis returned valid results.")

@@ -25,7 +25,7 @@ def request_drum_analysis(drums_path):
             DRUMS_SERVICE_URL,
             json=data,
             headers=headers,
-            timeout=500
+            timeout=1200
         )
         response.raise_for_status()
 
