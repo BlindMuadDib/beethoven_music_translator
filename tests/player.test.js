@@ -23,6 +23,8 @@ jest.doMock('../www/js/player/audio-player.js', () => ({ setupAudioPlayer: mockS
 // Now import initPlayer. It will use the mocked versions of the dependencies.
 const { initPlayer } = await import('../www/js/player.js');
 
+jest.doMock('../www/js/player/audio-player.js', () => ({ setupAudioPlayer: mockSetupAudioPlayer }));
+
 describe('Player Facade Integration)', () => {
 
     test('initPlayer should correctly initialize and update all trackers', () => {
@@ -121,7 +123,7 @@ describe('Player Facade Integration)', () => {
         // will resolve to the mocked version because of jest.mock at the top.
         // You only need to pass the mockResultData and the onAudioEnded
         initPlayer(mockResultData, jest.fn(), mockedDependencies);
-
+      
         // Assert that the mocked constructors for our trackers were called with the correct data
         expect(mockLyricTracker).toHaveBeenCalledWith(expect.anything(), mockResultData.mapped_result);
         expect(mockF0Tracker).toHaveBeenCalledWith(expect.anything(), mockResultData.f0_analysis, mockResultData.volume_analysis.instruments);
@@ -129,6 +131,11 @@ describe('Player Facade Integration)', () => {
 
         // Assert that the mock instance was called
         expect(mockVolumeTrackerInstance.setData).toHaveBeenCalledWith(mockResultData.volume_analysis.overall_rms);
+
+        // Assert that the mocked constructors for our trackers were called with the correct data
+        expect(mockLyricTracker).toHaveBeenCalledWith(expect.anything(), mockResultData.mapped_result);
+        expect(mockF0Tracker).toHaveBeenCalledWith(expect.anything(), mockResultData.f0_analysis, mockResultData.volume_analysis.instruments);
+        expect(mockVolumeTracker).toHaveBeenCalledWith('overall-volume-canvas');
 
         // Assert that the audio player setup was called
         expect(mockSetupAudioPlayer).toHaveBeenCalled();
