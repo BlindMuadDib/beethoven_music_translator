@@ -61,5 +61,5 @@ This project would not be possible without the contributions of:
 - [FreeSound](https://freesound.org), for their free database of Creative Commons and similarly licensed audio samples.
 - [CVLTIV8R](https://freesound.org/people/CVLTIV8R/), for his/her/their contribution of instrument samples.
 
-Thank you to the developers and maintainers of these invaluable tools.
+Thank you to the developers and maintainers of these invaluable tools as well as the artists who provide these invaluable sounds.
 
