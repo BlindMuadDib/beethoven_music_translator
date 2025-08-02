@@ -17,7 +17,10 @@
     "eslint": "^9.30.1",
     "globals": "^16.3.0",
     "jest": "^29.7.0",
+<<<<<<< HEAD
     "jest-canvas-mock": "^2.5.2",
+=======
+>>>>>>> 0ce7bc2fa36e78a3fd97ef4f85d64a36deeb4417
     "jest-environment-jsdom": "^29.7.0",
     "typescript-eslint": "^8.36.0"
   },

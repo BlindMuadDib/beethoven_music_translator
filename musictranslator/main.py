@@ -26,7 +26,6 @@ from musictranslator.musicprocessing.transcribe import map_transcript
 from musictranslator.musicprocessing.F0 import request_f0_analysis
 from musictranslator.musicprocessing.volume import request_volume_analysis
 from musictranslator.musicprocessing.drums import request_drum_analysis
-
 app = Flask(__name__)
 
 # Define the directory where uploaded/processed files are stored for serving

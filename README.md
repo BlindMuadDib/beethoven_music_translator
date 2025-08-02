@@ -10,9 +10,8 @@ Tertiary functions may include representation of other instrumentation, eg. guit
 Tertiary functions may also include ASL direct translations, NOT TO BE CONFUSED WITH ASL INTERPRETATION NOR SIGNED EXACT ENGLISH (SEE).
 
 # To run the Alpha version of the Music Translator
-There is not a front-end yet so current usage is limited.
 Access the musictranslator.org website on your web browser, upload a music (.wav) file and corresponding lyrics (.txt) file, add an Alpha access code and submit.
-The response will be in the form of a JSON dictionary, containing the lyrics, line-by-line, with start and end times for each word.
+A player-ui will load after your submission is processed. Press play and enjoy!
 Alternatively, download this repository, start a Kubernetes cluster, set your own Access Code values in the main.py, and run locally on your own machine.
 
 # Music Translator by and for Deaf
@@ -59,6 +58,8 @@ This project would not be possible without the contributions of:
 - [Demucs](https://github.com/adefossez/demucs), for their open-source music source separation library.
 - [Montreal Forced Aligner](https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner), for their alignment tools.
 - [Librosa](https://github.com/librosa/librosa), for their open-source audio analysis tools.
+- [FreeSound](https://freesound.org), for their free database of Creative Commons and similarly licensed audio samples.
+- [CVLTIV8R](https://freesound.org/people/CVLTIV8R/), for his/her/their contribution of instrument samples.
 
 Thank you to the developers and maintainers of these invaluable tools.
 

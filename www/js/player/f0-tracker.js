@@ -22,44 +22,78 @@ export function getF0ValueAtTime(f0Values, timesArray, currentTime, timeInterval
             minDiff = diff;
             bestMatchIndex = i;
         }
-        // If timesArray is sorted, we can potentially break early
-        if (timesArray[i] > currentTime && minDiff <= timeIntervalThreshold) {
-            break;
-        }
     }
-
     if (bestMatchIndex !== -1 && minDiff <= timeIntervalThreshold) {
         return f0Values[bestMatchIndex]; // This can be null if F0 was not detected
     }
     return null; // No data point close enough or f0 is null
 }
 
+// A shared utility function for finding volume value at a specific time via interpolation
+function getInterpolatedValue(data, currentTime) {
+    if (!data || data.length === 0) return null;
+    for (let i = 0; i < data.length - 1; i++) {
+        const [t1, v1] = data[i];
+        const [t2, v2] = data[i + 1];
+        if (currentTime >= t1 && currentTime <= t2) {
+            const timeDiff = t2 - t1;
+            if (timeDiff === 0) return v1;
+            const fraction = (currentTime - t1) / timeDiff;
+            return v1 + fraction * (v2 - v1);
+        }
+    }
+    if (currentTime < data[0][0]) return data[0][1];
+    if (currentTime > data[data.length - 1][0]) return data[data.length - 1][1];
+    return null;
+}
+
 export class F0Tracker {
-    // --- Configuration ---
-    config = {
-        instrumentColors: { bass: 'purple', guitar: 'blue', other: 'orange', piano: 'green', vocals: 'red', default: 'grey' },
-        activeInstruments: ['vocals', 'guitar', 'bass', 'piano', 'other'], // Desired display order
-        ballRadius: 6,
-        legendWidth: 80, // px. for instrument names and Y-axis labels
-        yAxisTicks: 4, // Number of F0 value lables on Y-axis
-        defaultF0Min: 50, // Hz
-        defaultF0Max: 1200 // Hz
-    };
-
-    // --- State ---
-    ctx = null;
-    f0Data = {};
-    canvas = null;
-    // Store calculated min/max for consistent drawing
-    drawingF0Min = this.config.defaultF0Min;
-    drawingF0Max = this.config.defaultF0Max;
-
-    constructor(canvas, f0AnalysisData) {
+    constructor(canvas, f0AnalysisData, instrumentVolumeData) {
         if (!canvas) throw new Error ("F0 canvas not provided!");
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.f0Data = f0AnalysisData || {};
+        // --- Configuration ---
+        this.config = {
+            instrumentColors: { bass: 'purple', guitar: 'blue', other: 'orange', piano: 'green', vocals: 'red', default: 'grey' },
+            activeInstruments: ['bass', 'guitar', 'other', 'piano', 'vocals'],
+            legendWidth: 80, // px. for instrument names and Y-axis labels
+            yAxisTicks: 4, // Number of F0 value lables on Y-axis
+            defaultF0Min: 50, // Hz
+            defaultF0Max: 1200, // Hz
+            minRadius: 4, // Minimum visible radius for the ball
+            baseDrawingPadding: 5, // Small buffer to avoid labels/balls being on the edge.
+        };
+
+        // --- State ---
+        // Store calculated min/max for consistent drawing
+        this.drawingF0Min = this.config.defaultF0Min;
+        this.drawingF0Max = this.config.defaultF0Max;
+
+        // --- Process and normalize intrument volume data ---
+        this.volumeData = this.processIntrumentVolume(instrumentVolumeData);
+
         this.update(0); // Initial draw
+    }
+
+    processIntrumentVolume(instrumentVolumeData) {
+        if (!instrumentVolumeData) return {};
+        const processedData = {};
+        for (const instrument of this.config.activeInstruments) {
+            const data = instrumentVolumeData[instrument]?.rms_values;
+            if (!data || data.length === 0) continue;
+
+            const values = data.map(d => d[1]);
+            const minRms = Math.min(...values);
+            const maxRms = Math.max(...values);
+            const range = maxRms - minRms;
+
+            processedData[instrument] = {
+                minRms, maxRms, // Store for debugging if needed
+                values: data.map(([time, value]) => [time, range > 0 ? (value - minRms) / range : 0]),
+            };
+        }
+        return processedData;
     }
 
     /**
@@ -81,12 +115,69 @@ export class F0Tracker {
         }
 
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        const drawAreaWidth = this.canvas.width - this.config.legendWidth;
+        const numInstruments = this.config.activeInstruments.length;
+        // Calculate horizontal spacing for balls within the drawAreaWidth
+        const instrumentSpacing = drawAreaWidth / (numInstruments > 1 ? numInstruments : 2); // Avoid division by 1 if only one instrument
+        const maxRadiusThisFrame = Math.max(this.config.minRadius, instrumentSpacing / 2);
 
+        this.drawYAxis(maxRadiusThisFrame)
+
+        this.config.activeInstruments.forEach((instrumentName, index) => {
+            const instrumentF0Data = this.f0Data[instrumentName];
+            this.drawLegend(instrumentName, index);
+            if (!instrumentF0Data?.times) return;
+
+            const currentF0 = getF0ValueAtTime(instrumentF0Data.f0_values, instrumentF0Data.times, currentTime, instrumentF0Data.time_interval || 0.1);
+            if (currentF0 !== null && currentF0 >= this.drawingF0Min && currentF0 <= this.drawingF0Max) {
+                // Default Volume if no data
+                let normalizedVolume = 0.5;
+                const instrumentVolumeData = this.volumeData[instrumentName];
+                if (instrumentVolumeData) {
+                    const vol = getInterpolatedValue(instrumentVolumeData.values, currentTime);
+                    if (vol !== null) {
+                        normalizedVolume = vol;
+                    }
+                }
+                // Position ball horizontally
+                const ballX = this.config.legendWidth + (index * instrumentSpacing) + (instrumentSpacing / 2);
+                this.drawBall(instrumentName, ballX, currentF0, normalizedVolume, instrumentSpacing);
+            }
+        });
+    }
+
+    drawBall(instrument, x, f0, normalizedVolume, spacing) {
+        // Calculate the maximum possible radius for any ball given current spacing
+        const maxRadiusThisFrame = Math.max(this.config.minRadius, spacing / 2);
+        // Use this to determine the consistent vertical offset
+        const totalVerticalOffset = maxRadiusThisFrame + this.config.baseDrawingPadding;
+        const effectiveCanvasHeight = this.canvas.height - (2 * totalVerticalOffset)
+
+        // Map F0 to Y coordinate within the effective drawing height
+        // Invert Y-axis: higher F0 should be lower Y value (closer to top)
+        const y = totalVerticalOffset + (effectiveCanvasHeight - ((f0 - this.drawingF0Min) / (this.drawingF0Max - this.drawingF0Min)) * effectiveCanvasHeight);
+
+        // Ensure spacing is a number to prevent NaN
+        const validSpacing = typeof spacing === 'number' ? spacing : 10;
+        const currentBallMaxRadius = (validSpacing / 2);
+        // Ensure maxRadius is greater than minRadius before calculating range
+        const radiusRange = Math.max(0, currentBallMaxRadius - this.config.minRadius);
+        const radius = this.config.minRadius + (normalizedVolume * radiusRange);
+        console.log(`[F0Tracker] Drawing ball for ${instrument}: F0=${f0.toFixed(1)}, Vol=${normalizedVolume.toFixed(2)}, Radius=${radius.toFixed(2)}`);
+
+        this.ctx.beginPath();
+        this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+        this.ctx.fillStyle = this.config.instrumentColors[instrument] || this.config.instrumentColors.default;
+        this.ctx.fill();
+        this.ctx.closePath();
+    }
+
+    drawYAxis(maxRadiusForAxis) {
         const f0Min = this.drawingF0Min;
         const f0Max = this.drawingF0Max;
-        const drawAreaWidth = this.canvas.width - this.config.legendWidth;
-        const drawAreaHeight = this.canvas.height - 20; // Padding at top/bottom for labels
-        const yOffset = 10; // Start drawing Y-axis from this offset
+
+        const totalVerticalOffset = maxRadiusForAxis + this.config.baseDrawingPadding; // Start drawing Y-axis from this offset
+        const drawAreaHeight = this.canvas.height - (2 * totalVerticalOffset); // Padding at top/bottom for labels
 
         // Draw Y-axis labels (F0 values) one time
         this.ctx.fillStyle = 'black';
@@ -95,7 +186,7 @@ export class F0Tracker {
         for (let i = 0; i < this.config.yAxisTicks; i++) {
             const val = f0Min + (i / (this.config.yAxisTicks - 1)) * (f0Max - f0Min);
             // Scale value to Y position: 0 Hz at bottom, max Hz at top of drawAreaHeight
-            const yPos = yOffset + drawAreaHeight - ((val - f0Min) / (f0Max - f0Min) * drawAreaHeight);
+            const yPos = totalVerticalOffset + drawAreaHeight - ((val - f0Min) / (f0Max - f0Min) * drawAreaHeight);
 
             this.ctx.fillText(val.toFixed(0) + "Hz", this.config.legendWidth - 10, yPos + 3); // +3 for text alignment, Hz for clarity
             // Draw light horizontal grid lines
@@ -105,44 +196,15 @@ export class F0Tracker {
             this.ctx.lineTo(this.canvas.width, yPos);
             this.ctx.stroke();
         }
+    }
 
-        const numInstruments = this.config.activeInstruments.length;
-        // Calculate horizontal spacing for balls within the drawAreaWidth
-        const ballHorizontalSpacing = drawAreaWidth / (numInstruments > 1 ? numInstruments : 2); // Avoid division by 1 if only one instrument
-
-        this.config.activeInstruments.forEach((instrumentName, index) => {
-            const instrumentData = this.f0Data[instrumentName];
-
-            // Draw Legend Text (instrument name)
-            this.ctx.textAlign = 'left';
-
-            if (instrumentData && instrumentData.times && instrumentData.f0_values) {
-                const ballColor = this.config.instrumentColors[instrumentName] || this.config.instrumentColors.default;
-                this.ctx.fillStyle = ballColor;
-                this.ctx.fillText(instrumentName, 5, yOffset + 15 + index * 15); // Stagger legend items
-
-                const timeInterval = instrumentData.time_interval || 0.1; // Get specific or global time-interval
-                const currentF0 = getF0ValueAtTime(instrumentData.f0_values, instrumentData.times, currentTime, timeInterval);
-
-                if (currentF0 !== null && currentF0 >= f0Min && currentF0 <= f0Max) {
-                    // Position ball horizontally
-                    const ballX = this.config.legendWidth + (index * ballHorizontalSpacing) + (ballHorizontalSpacing / 2);
-                    const normalizedY = (currentF0 - f0Min) / (f0Max - f0Min);
-                    // Position ball vertically based on F0 value
-                    const ballY = yOffset + drawAreaHeight - (normalizedY * drawAreaHeight);
-
-                    this.ctx.beginPath();
-                    this.ctx.arc(ballX, ballY, this.config.ballRadius, 0, Math.PI * 2);
-                    this.ctx.fill();
-                    this.ctx.closePath();
-                }
-            } else {
-                // Draw legend even if data is missing
-                this.ctx.fillStyle = this.config.instrumentColors.default;
-                this.ctx.textAlign = 'left';
-                this.ctx.fillText(instrumentName + " (no data)", 5, yOffset + 15 + index * 15);
-            }
-        });
+    drawLegend(instrumentName, index) {
+        const yOffset = 10;
+        const instrumentData = this.f0Data[instrumentName];
+        this.ctx.textAlign = 'left';
+        this.ctx.fillStyle = this.config.instrumentColors[instrumentName] || this.config.instrumentColors.default;
+        const legendText = instrumentData ? instrumentName : `${instrumentName} (no data)`;
+        this.ctx.fillText(legendText, 5, yOffset + 15 + index * 15);
     }
 }
 
