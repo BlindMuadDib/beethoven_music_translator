@@ -20,9 +20,12 @@ export async function submitJob(formData, accessCode) {
 }
 
 /**
- * Polls the results endpoint until the job is finished or fails.
+ * Polls the results endpoint until the job is finished or fails,
+ * and upon completion, fetches the final harmonic data from its URL,
+ * returning a single, complete result object.
  * Provides updates on the current processing stage
  * @param {string} job_id - The ID of the job to poll, returned by back-end after initial job submission.
+ * @param {function} onProgress - A callback function for progress updates.
  * @returns {Promise<object>} - A promise that resolves to the final job result data.
  */
 export function pollJobStatus(job_id, onProgress) {
@@ -48,7 +51,35 @@ export function pollJobStatus(job_id, onProgress) {
 
                 if (data.status === 'finished') {
                     clearInterval(interval);
-                    resolve(data); // Resolve the promise with the final data
+
+                    // Check for the harmonic analysis URL.
+                    const harmonicUrl = data.result?.harmonic_analysis?.results_url;
+
+                    if (harmonicUrl) {
+                        console.log(`Job finished. Fetching harmonic data from ${harmonicUrl}...`);
+                        try {
+                            // Fetch the detailed harmonic data from the provided URL.
+                            const harmonicResponse = await fetch(`/${harmonicUrl}`);
+                            if (!harmonicResponse.ok) {
+                                throw new Error(`Failed to fetch harmonic data. Status: ${harmonicResponse.status}`);
+                            }
+                            const harmonicData = await harmonicResponse.json();
+
+                            // Replace the URL object with the actual data.
+                            data.result.harmonic_analysis = harmonicData;
+
+                            console.log("Harmonic data fetched and merged successfully.");
+                            resolve(data); // Resolve with the complete, merged data.
+
+                        } catch (fetchError) {
+                            console.error("Could not fetch harmonic data:", fetchError);
+                            // Reject the promise if the secondary fetch fails.
+                            reject(fetchError);
+                        }
+                    } else {
+                        // If there is no URL, resolve the data as-is.
+                        resolve(data);
+                    }
                 } else if (data.status === 'failed') {
                     clearInterval(interval);
                     reject(new Error(data.message || 'The job failed.'));

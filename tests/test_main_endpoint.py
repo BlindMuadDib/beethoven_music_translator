@@ -131,29 +131,6 @@ def test_translate_endpoint_post_success(
     lyrics_data = load_test_file(lyrics_file_path)
     expected_mapped_results = load_json_file(expected_mapped_results_path)
 
-    # Define a mock F0 analysis result
-    mock_f0_analysis_data = {
-        "vocals": {
-            "times": [0.01, 0.02, 0.03],
-            "f0_values": [220.0, 220.1, 220.5],
-            "time_interval": 0.01
-        },
-        "bass": {
-            "times": [0.01, 0.02, 0.03],
-            "f0_values": [110.0, None, 110.2],
-            "time_interval": 0.01
-        },
-        "other": None # Example of a stem with no F0 or an error for that stem
-    }
-
-    mock_volume_analysis_data = {
-        "overall_rms": [[0.0, 0.5], [0.02, 0.6]],
-        "instruments": {
-            "vocals": {"rms_values": [[0.0, 0.4], [0.02, 0.45]]},
-            "bass": {"rms_values": [[0.0, 0.3], [0.02, 0.35]]}
-        }
-    }
-
     mock_drum_analysis_data = {
         "hits": [
             {
@@ -224,12 +201,12 @@ def test_translate_endpoint_post_success(
     expected_unique_audio_path = f"/shared-data/audio/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
     expected_unique_lyrics_path = f"/shared-data/lyrics/{enqueued_job_id}_{os.path.basename(lyrics_file_path)}"
 
-    expected_audio_url = f"/files/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
+    expected_audio_url = f"api/files/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
+    expected_harmonic_url = f"api/results/file/{enqueued_job_id}_harmonic.json"
 
     expected_final_result = {
         "mapped_result": expected_mapped_results,
-        "f0_analysis": mock_f0_analysis_data,
-        "volume_analysis": mock_volume_analysis_data,
+        "harmonic_analysis": expected_harmonic_url,
         "drum_analysis": mock_drum_analysis_data,
         "audio_url": expected_audio_url,
         "original_filename": "BloodCalcification-SkinDeep.wav"
@@ -270,47 +247,30 @@ def test_translate_endpoint_post_success(
 
     mock_rq_components['job_fetch'].assert_called_once_with(enqueued_job_id, connection=mock_rq_components['redis_conn'])
 
-def test_get_results_success_volume_error(
-    client: FlaskClient,
-    mock_rq_components: dict,
-    mock_uuid_generator: dict
-):
-    """Tests /results when the volume analysis part of the job reported an error."""
-    job_id = mock_uuid_generator['test_job_id']
-    mock_job = mock_rq_components['job']
+def test_serve_results_file_success(client: FlaskClient):
+    """
+    Test the serve results endpoint for serving result files successfully.
+    """
+    with patch('musictranslator.main.send_from_directory') as mock_send:
+        mock_send.return_value = "file content"
+        response = client.get('/api/results/file/some_results_file.json')
+        assert response.status_code == 200
+        assert response.data == b"file content"
+        mock_send.assert_called_once_with('/shared-data/results',
+                                          'some_results_file.json',
+                                          as_attachment=False)
 
-    expected_mapped_results = [{'line_text': 'example_line'}]
-    volume_error_report = {
-        "error": "Volume service timeout",
-        "info": "Volume analysis did not complete."
-    }
+def test_serve_results_file_not_found(client: FlaskClient):
+    """
+    Test the new results file endpoint when the file is not found.
+    """
+    with patch('musictranslator.main.send_from_directory',
+               side_effect=FileNotFoundError) as mock_send:
+        response = client.get('/api/results/file/not_found.json')
+        assert response.status_code == 404
+        assert response.get_json() == {"error": "File not found"}
 
-    expected_final_result_with_volume_error = {
-        "mapped_result": expected_mapped_results,
-        "f0_analysis": {}, # Assume f0 was fine
-        "volume_analysis": volume_error_report,
-        "drum_analysis": [],
-        "audio_url": "/files/some_audio.wav",
-        "original_filename": "audio.wav"
-    }
-
-    mock_job.id = job_id
-    mock_job.is_finished = True
-    mock_job.is_failed = False
-    mock_job.result = expected_final_result_with_volume_error
-
-    response_results = client.get(f'/api/results/{job_id}')
-    assert response_results.status_code == 200
-    response_results_json = response_results.get_json()
-    assert response_results_json == {
-        "status": "finished",
-        "result": expected_final_result_with_volume_error
-    }
-    mock_rq_components['job_fetch'].assert_called_once_with(
-        job_id, connection=mock_rq_components['redis_conn']
-    )
-
-def test_get_results_success_f0_error(
+def test_get_results_success_harmonic_error(
     client: FlaskClient,
     mock_rq_components: dict,
     mock_uuid_generator: dict
@@ -328,21 +288,13 @@ def test_get_results_success_f0_error(
             'line_start_time': 0.1,
             'line_end_time': 1.0
         }]
-    f0_error_report = {
-        "error": "F0 service timeout during processing.",
-        "info": "F0 analysis did not complete successfully."
-    }
-    expected_volume_results = {
-        "overall_rms": [[0.0, 0.5], [0.02, 0.6]],
-        "instruments": {
-            "vocals": {"rms_values": [[0.0, 0.4], [0.02, 0.45]]},
-            "bass": {"rms_values": [[0.0, 0.3], [0.02, 0.35]]}
-        }
+    harmonic_error_report = {
+        "error": "Harmonic service timeout during processing.",
+        "info": "Harmonic analysis did not complete successfully."
     }
     expected_final_result_with_f0_error = {
         "mapped_results": expected_mapped_results,
-        "f0_analysis": f0_error_report,
-        "volume_analysis": expected_volume_results,
+        "harmonic_analysis": harmonic_error_report,
         "drum_analysis": [],
         "audio_url": "/files/some_audio.wav",
         "original_filename": "audio.wav"

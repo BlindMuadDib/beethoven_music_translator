@@ -13,19 +13,20 @@ import subprocess
 import logging
 import uuid
 import threading
+import time
 import magic
 import redis
 import rq
 from rq import Queue, get_current_job
 from rq.job import Job
-from flask import Flask, request, jsonify, g, send_from_directory
+from flask import Flask, request, jsonify, g, send_from_directory, make_response
 from werkzeug.utils import secure_filename
 from musictranslator.musicprocessing.align import align_lyrics
 from musictranslator.musicprocessing.separate import split_audio
 from musictranslator.musicprocessing.transcribe import map_transcript
-from musictranslator.musicprocessing.F0 import request_f0_analysis
-from musictranslator.musicprocessing.volume import request_volume_analysis
+from musictranslator.musicprocessing.harmonic import request_harmonic_analysis
 from musictranslator.musicprocessing.drums import request_drum_analysis
+
 app = Flask(__name__)
 
 # Define the directory where uploaded/processed files are stored for serving
@@ -110,8 +111,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
     """
     alignment_json_path = None
     vocals_stem_path = None
-    f0_analysis_result = None
-    volume_analysis_result = None
+    harmonic_analysis_result = None
     drum_analysis_result = None
     separate_cleanup_path = None
     job = get_current_job()
@@ -152,16 +152,15 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
             separate_cleanup_path = os.path.dirname(first_stem_path)
         logger.info("Step 1 Complete. Vocals Stem Path: %s. Cleanup path: %s", vocals_stem_path, separate_cleanup_path)
 
-        # --- 2. Concurrent F0, Volume & Drum Analysis and Lyrics Alignment ---
-        logger.info("Step 2: Starting concurrent F0, Drum and Volume analysis, and Lyrics Alignment ...")
+        # --- 2. Concurrent Harmonic, Volume & Drum Analysis and Lyrics Alignment ---
+        logger.info("Step 2: Starting concurrent Harmonic, and Percussive instrument analysis, and Lyrics Alignment ...")
         if job:
             job.meta['progress_stage'] = 'stem_processing'
             job.save_meta()
 
         thread_results_shared = {
             "alignment_json_path": None, "alignment_error": None,
-            "f0_analysis_data": None, "f0_error": None,
-            "volume_analysis_data": None, "volume_error": None,
+            "harmonic_analysis_url": None, "harmonic_error": None,
             "drum_analysis_data": None, "drum_error": None,
         }
 
@@ -183,41 +182,71 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                 logger.error("Align-Thread: Exception - %s", e, exc_info=True)
                 thread_results_shared["alignment_error"] = str(e)
 
-        def _f0_analysis_task():
+        def _harmonic_analysis_task():
             try:
-                logger.info("F0-Thread: Starting F0 analysis for stems: %s", list(separate_result.keys()))
-                # `separate_result` is the dict of paths from `split_audio`
-                result = request_f0_analysis(separate_result)
-                if isinstance(result, dict) and "error" in result:
-                    thread_results_shared["f0_error"] = result["error"]
-                    logger.error(f"F0-Thread: F0 service error - %s", result["error"])
-                elif not isinstance(result, dict):
-                    err_msg = f"F0 analysis returned unexpected data type: {type(result)}"
-                    thread_results_shared["f0_error"] = err_msg
-                    logger.error("F0-Thread: %s", err_msg)
-                else:
-                    thread_results_shared["f0_analysis_data"] = result
-                    logger.info("F0-Thread: F0 analysis successful. Instruments processed: %s", list(result.keys()))
-            except Exception as e:
-                logger.error("F0-Thread: Exception - %s", e, exc_info=True)
-                thread_results_shared["f0_error"] = str(e)
+                logger.info(
+                    "Harmonic-Thread: Starting Harmonic analysis for stems: %s, full track: %s",
+                    list(separate_result.keys()),
+                    unique_audio_path
+                )
+                # Initiate the analysis. This now returns a dict with
+                # 'results_url'
+                initial_response = request_harmonic_analysis(
+                    separate_result,
+                    unique_audio_path
+                )
 
-        def _volume_analysis_task():
-            try:
-                logger.info("Volume-Thread: Starting volume analysis.")
-                # Payload requires the original song path in addition to the stems
-                payload = {"song": unique_audio_path, **separate_result}
-                result = request_volume_analysis(payload)
-                if isinstance(result, dict) and "error" in result:
-                    thread_results_shared["volume_error"] = result["error"]
-                elif not isinstance(result, dict):
-                    thread_results_shared["volume_error"] = f"Volume analysis returned unexpected data type: {type(result)}"
+                if isinstance(initial_response, dict) and "error" in initial_response:
+                    thread_results_shared["harmonic_error"] = initial_response["error"]
+                    logger.error(
+                        "Harmonic-Thread: Harmonic service error - %s",
+                        initial_response["error"]
+                    )
+                    return
+
+                harmonic_results_url = initial_response.get("results_url")
+                if not harmonic_results_url:
+                    err_msg = f"Harmonic service did not return a results_url. Response: {initial_response}"
+                    thread_results_shared["harmonic_error"] = err_msg
+                    logger.error("Harmonic-Thread: %s",
+                                 err_msg)
+                    return
+
+                # Poll for the results file on the shared volume
+                harmonic_results_filename = os.path.basename(harmonic_results_url)
+                # The results are saved in a different subdirectory on the
+                # shared volume
+                expected_file_path = os.path.join('/shared-data/results',
+                                                  harmonic_results_filename)
+                logger.info("Harmonic-Thread: Polling for results file at %s",
+                            expected_file_path)
+
+                # Poll for up to 20 minutes (1200 seconds)
+                file_found = False
+                for _ in range(1200):
+                    if os.path.exists(expected_file_path):
+                        logger.info("Harmonic-Thread: Found results file. Passing file to final results.")
+                        file_found = True
+                        break
+                    time.sleep(1)
+
+                if file_found:
+                    # Success! Store the URL to be served by the endpoint
+                    final_url = f"api/results/file/{harmonic_results_filename}"
+                    thread_results_shared["harmonic_analysis_url"] = final_url
+                    logger.info(
+                        "Harmonic-Thread: Harmonic analysis complete. URL: %s",
+                        final_url
+                    )
                 else:
-                    thread_results_shared["volume_analysis_data"] = result
-                    logger.info("Volume-Thread: Volume analysis successful.")
+                    err_msg = f"Timed out waiting for harmonic analysis results file: {expected_file_path}"
+                    thread_results_shared["harmonic_error"] = err_msg
+                    logger.error("Harmonic-Thread: %s", err_msg)
+
             except Exception as e:
-                logger.error("Volume-Thread: Exception = %s", e, exc_info=True)
-                thread_results_shared["volume_error"] = str(e)
+                logger.error("Harmonic-Thread: Exception - %s",
+                             e, exc_info=True)
+                thread_results_shared["harmonic_error"] = str(e)
 
         def _drum_analysis_task():
             # Only run if a drums stem was actually produced by Demucs
@@ -243,19 +272,16 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                 thread_results_shared["drum_error"] = str(e)
 
         align_thread = threading.Thread(target=_align_lyrics_task, name="AlignLyricsThread")
-        f0_thread = threading.Thread(target=_f0_analysis_task, name="F0AnalysisThread")
-        volume_thread = threading.Thread(target=_volume_analysis_task, name="VolumeAnalysisThread")
+        harmonic_thread = threading.Thread(target=_harmonic_analysis_task, name="HarmonicAnalysisThread")
         drums_thread = threading.Thread(target=_drum_analysis_task, name="DrumAnalysisThread")
 
         align_thread.start()
-        f0_thread.start()
-        volume_thread.start()
+        harmonic_thread.start()
         drums_thread.start()
 
         # Wait for services to complete
         align_thread.join()
-        f0_thread.join()
-        volume_thread.join()
+        harmonic_thread.join()
         drums_thread.join()
 
         logger.info("Concurrent processing finished. Checking results ...")
@@ -268,25 +294,19 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
         alignment_json_path = thread_results_shared["alignment_json_path"]
         logger.info("Step 2.1 (Alignment) Complete. Path: %s", alignment_json_path)
 
-        # Process F0 results
-        if thread_results_shared["f0_error"]:
-            logger.warning(f"F0 analysis encountered an error: %s. Proceeding without F0 data.",
-                           thread_results_shared['f0_error'])
-            f0_analysis_result = {
-                "error": thread_results_shared["f0_error"],
-                "info": "F0 analysis did not complete successfully."
+        # Process Harmonic results
+        if thread_results_shared["harmonic_error"]:
+            logger.warning(f"Harmonic analysis encountered an error: %s. Proceeding without Harmonic data.",
+                           thread_results_shared['harmonic_error'])
+            harmonic_analysis_result = {
+                "error": thread_results_shared["harmonic_error"],
+                "info": "Harmonic analysis did not complete successfully."
             }
-        f0_analysis_result = thread_results_shared["f0_analysis_data"]
-        logger.info("Step 2.2 (F0 Analysis) Complete.")
-
-        # Process Volume results
-        volume_analysis_result = thread_results_shared["volume_analysis_data"]
-        if thread_results_shared["volume_error"]:
-            logger.warning("Volume analysis encountered an error: %s. Proceeding without volume data.", thread_results_shared['volume_error'])
-            volume_analysis_result = {
-                "error": thread_results_shared["volume_error"],
-                "info": "Volume analysis did not complete successfully."}
-        logger.info("Step 2.3 (Volume Analysis) Complete.")
+        else:
+            harmonic_analysis_result = {
+                "results_url": thread_results_shared["harmonic_analysis_url"]
+            }
+        logger.info("Step 2.2 (Harmonic Analysis) Complete.")
 
         # Process Drum Results
         if thread_results_shared["drum_error"]:
@@ -317,8 +337,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
         # Final combined result structure
         final_job_result = {
             "mapped_result": mapped_result,
-            "f0_analysis": f0_analysis_result if f0_analysis_result else None,
-            "volume_analysis": volume_analysis_result if volume_analysis_result else None,
+            "harmonic_analysis": harmonic_analysis_result,
             "drum_analysis": drum_analysis_result if drum_analysis_result else None,
             "audio_url": f"api/files/{unique_audio_filename}",
             "original_filename": original_audio_filename
@@ -589,22 +608,46 @@ def get_results(job_id):
         }), 500
 
 @app.route('/api/files/<path:unique_audio_filename>')
-def serve_file(unique_audio_filename):
+def serve_audio_file(unique_audio_filename):
     """Serves a file from the SERVE_AUDIO_DIR."""
     app.logger.info(f"Attempting to serve file: {unique_audio_filename} from {SERVE_AUDIO_DIR}")
     try:
         return send_from_directory(SERVE_AUDIO_DIR, unique_audio_filename, as_attachment=False)
     except FileNotFoundError:
-        app.logger.error(f"File not found: {unique_audio_filename} in {SERVE_AUDIO_DIR}")
+        app.logger.error(f"Audio file not found: {unique_audio_filename} in {SERVE_AUDIO_DIR}")
+        return jsonify({"error": "Audio file not found"}), 404
+    except Exception as e:
+        app.logger.error(f"Error serving audio file {unique_audio_filename}: {e}")
+        return jsonify({"error": "Error serving audio file"}), 500
+
+@app.route('/api/results/file/<path:filename>')
+def serve_results_file(filename):
+    """
+    Serves a results file {e.g., harmonic analysis JSON} from the results
+    directory.
+    """
+    results_dir = '/shared-data/results'
+    app.logger.info("Attempting to serve results file: %s from %s",
+                    filename, results_dir)
+    try:
+        # Use send_from_directory for security and proper header handling
+        return send_from_directory(results_dir, filename,
+                                    as_attachment=False)
+    except FileNotFoundError:
+        app.logger.error("Results file not found: %s in %s",
+                         filename, results_dir)
         return jsonify({"error": "File not found"}), 404
     except Exception as e:
-        app.logger.error(f"Error serving file {unique_audio_filename}: {e}")
+        app.logger.error("Error serving results file %s: %s",
+                         filename, e)
         return jsonify({"error": "Error serving file"}), 500
+
 
 @app.route('/api/cleanup/<string:filename>', methods=['DELETE'])
 def delete_audio_file(filename):
     """
-    Securely deletes a single processed audio file from the shared volume.
+    Securely deletes a single processed audio file and its corresponding
+    harmonic analysis results from the shared volume.
     """
     # Security: Sanitize the filename to prevent directory traversal attacks.
     # secure_filename ensures the path is flat and safe.
@@ -612,6 +655,26 @@ def delete_audio_file(filename):
     if not safe_filename or safe_filename != filename:
         return jsonify({"error": "Invalid filename provided"}), 400
 
+    # --- Delete Harmonic Analysis Results ---
+    # The job_id is the part of the filename before the first underscore
+    if '_' in safe_filename:
+        job_id = safe_filename.split('_')[0]
+        harmonic_results_filename = f"{job_id}_harmonic.json"
+        harmonic_results_path = os.path.join('/shared-data/results',
+                                             harmonic_results_filename)
+
+        if os.path.exists(harmonic_results_filename):
+            try:
+                os.remove(harmonic_results_path)
+                app.logger.info("Client-triggered cleanup: Deleted harmonic results %s",
+                                harmonic_results_path)
+            except OSError as e:
+                # Log the error but don't fail the request, as the main audio
+                # file might still be deletable
+                app.logger.error("Error deleting harmonic results file %s: %s",
+                                 harmonic_results_path, e)
+
+    # --- Delete Main Audio File ---
     file_path = os.path.join('/shared-data/audio', safe_filename)
 
     if os.path.exists(file_path):

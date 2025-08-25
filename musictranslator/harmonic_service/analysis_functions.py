@@ -5,6 +5,56 @@ range of audio features for the separate instrument stem tracks
 import numpy as np
 import librosa
 
+def analyze_full_track_features(audio_path, sr=44100):
+    """
+    Performs a high-level analysis of a full audio track, primarily
+    for duration, tempo and overall volume.
+
+    Args:
+        audio_path (str): Path to the audio file.
+        sr (int): The sample rate to resample the audio to.
+
+    Returns:
+        dict or None: A dictionary containing the computed features,
+        or None on failure.
+    """
+    try:
+        y, sr = librosa.load(audio_path, sr=sr)
+
+        n_fft = 2048
+        hop_length = 512
+
+        # A simple check for a silent or very short file
+        if len(y) < n_fft:
+            print(f"Warning: Audio file {audio_path} is too short for analysis")
+            return None
+        if np.mean(librosa.feature.rms(y=y)[0]) < 1e-6:
+            print(f"Warning: Audio file {audio_path} is effectively silent")
+            return None
+
+        duration = librosa.get_duration(y=y, sr=sr)
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+
+        # Calculate RMS as a time-series
+        rms_series = librosa.feature.rms(y=y, hop_length=hop_length)
+        times_rms = librosa.times_like(rms_series, sr=sr,
+                                       hop_length=hop_length)
+
+        return {
+            "duration": float(duration),
+            "tempo": float(tempo),
+            "rms_overall": {
+                "times": times_rms.tolist(),
+                "values": rms_series[0].tolist()
+            }
+        }
+    except FileNotFoundError:
+        print(f"Error: Audio file not found at {audio_path}")
+        return None
+    except Exception as e:
+        print(f"Error processing full track {audio_path}: {e}")
+        return None
+
 def analyze_audio_features(audio_path, sr=44100):
     """
     Performs a comprehensive analysis of an audio file, extracting a
@@ -94,7 +144,7 @@ def analyze_audio_features(audio_path, sr=44100):
                 "times": times_stft.tolist(),
                 "frequencies": freqs.tolist(),
                 "spectrogram": spectrogram_list,
-                "rms": rms[0],
+                "rms": rms,
                 "spectral_centroid": spectral_centroid[0],
                 "spectral_bandwidth": spectral_bandwidth[0],
                 "spectral_rolloff": spectral_rolloff[0],

@@ -2,12 +2,15 @@ import os
 import json
 import shutil
 import unittest
+import uuid
+import tempfile
 import numpy as np
 import soundfile as sf
+from unittest.mock import patch, MagicMock, mock_open
 from musictranslator.harmonic_service.app import app as harmonic_service_app
 
 # Directory for temporary test audio files specific to this test suite
-TEST_ENDPOINT_AUDIO_DIR = os.path.join(os.path.dirname(__file__), 'temp_f0_endpoint_audio')
+TEST_ENDPOINT_AUDIO_DIR = os.path.join(os.path.dirname(__file__), 'temp_harmonic_endpoint_audio')
 SAMPLE_RATE = 44100 # Standard sample rate
 
 # --- Helper Functions ---
@@ -27,38 +30,82 @@ def create_silent_file(filepath, duration=0.5, samplerate=SAMPLE_RATE):
 
 # --- End Helper Functions ---
 
-class TestFundFreqServiceEndpoint(unittest.TestCase):
+class TestHarmonicServiceEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         """Set up the test client and create test audio files."""
         if harmonic_service_app:
             cls.client = harmonic_service_app.test_client()
-            harmonic_service_app.config['TESTING'] = True
         else:
-            raise unittest.SkipTest("Skipping Harmonic service tests: Flask app not loaded.")
+            cls.clent = None
+            return
+
+        # Create a temporary directory for test results
+        cls.temp_results_dir = tempfile.TemporaryDirectory()
+
+        # Path the RESULTS_BASE_PATH to point to the temp directory
+        cls.patcher = patch('musictranslator.harmonic_service.app.RESULTS_BASE_PATH',
+                            cls.temp_results_dir.name)
+        cls.patcher.start()
 
         # Create shared test audio files
-        cls.vocals_file = os.path.join(TEST_ENDPOINT_AUDIO_DIR, 'vocals_test.wav')
-        cls.bass_file = os.path.join(TEST_ENDPOINT_AUDIO_DIR, 'bass_test.wav')
-        cls.guitar_file = os.path.join(TEST_ENDPOINT_AUDIO_DIR, 'guitar_test.wav')
-        cls.silent_file = os.path.join(TEST_ENDPOINT_AUDIO_DIR, 'silent_test.wav')
-        cls.non_existent_file = os.path.join(TEST_ENDPOINT_AUDIO_DIR, 'non_existent_test.wav')
+        os.makedirs(TEST_ENDPOINT_AUDIO_DIR, exist_ok=True)
 
-        create_sine_wave_file(cls.vocals_file, freq=440.0)  # A4 note
-        create_sine_wave_file(cls.bass_file, freq=110.0)    # A2 note
-        create_sine_wave_file(cls.guitar_file, freq=440.0)  # A4 note
-        create_silent_file(cls.silent_file)
+        # File paths...
+        cls.vocals_file = os.path.join(
+            TEST_ENDPOINT_AUDIO_DIR,
+            'vocals_test.wav'
+        )
+        cls.bass_file = os.path.join(
+            TEST_ENDPOINT_AUDIO_DIR,
+            'bass_test.wav'
+        )
+        cls.guitar_file = os.path.join(
+            TEST_ENDPOINT_AUDIO_DIR,
+            'guitar_test.wav'
+        )
+        cls.full_track_file = os.path.join(
+            TEST_ENDPOINT_AUDIO_DIR,
+            'full_track_test.wav'
+        )
+        # Create a specific file for the invalid job ID test
+        cls.test_invalid_job_id_track_file = os.path.join(
+            TEST_ENDPOINT_AUDIO_DIR,
+            'fulltracktest.wav')
 
-        # Ensure non_existent_file does not exist for testing that case
-        if os.path.exists(cls.non_existent_file):
-            os.remove(cls.non_existent_file)
+        # Create audio content...
+        create_sine_wave_file(cls.vocals_file,
+                              freq=440.0)   # A4 note
+        create_sine_wave_file(cls.bass_file,
+                              freq=110.0)   # A2 note
+        create_sine_wave_file(cls.guitar_file,
+                              freq=440.0)   # A4 note
+        create_sine_wave_file(cls.full_track_file,
+                              freq=220.0)   # A3 note
+        # Copy the content for the invalid job id file
+        shutil.copyfile(cls.full_track_file,
+                        cls.test_invalid_job_id_track_file)
 
     @classmethod
     def tearDownClass(cls):
-        """Remove the temporary test audio directory."""
+        """Clean up test resources after all done."""
+        # Stop the patcher
+        cls.patcher.stop()
+        # Clean up the temporary results directory
+        cls.temp_results_dir.cleanup()
+        # Clean up the test audio files
         if os.path.exists(TEST_ENDPOINT_AUDIO_DIR):
             shutil.rmtree(TEST_ENDPOINT_AUDIO_DIR)
+
+    def test_empty_request(self):
+        """Test sending an empty request body."""
+        response = self.client.post('/api/analyze_harmonic', json={})
+        self.assertEqual(response.status_code, 400)
+        error_data = response.get_json()
+        self.assertIn("error", error_data)
+        self.assertIn("Request body cannot be empty",
+                      error_data['error'])
 
     def test_health_check(self):
         """Test the /harmonic/health endpoint."""
@@ -69,107 +116,137 @@ class TestFundFreqServiceEndpoint(unittest.TestCase):
         self.assertIn("Harmonic Analysis service is running",
                       json_data['message'])
 
-    def test_analyze_all_success_multiple_stems(self):
-        """Test successful F0 analysis for multiple valid stems."""
+    def test_valid_request_returns_202_and_url(self):
+        """
+        Test that a valid request returns a 202 Accepted status
+        and a JSON response with only results_url.
+        """
+        # Generate a unique job ID to ensure test isolation
+        job_id = str(uuid.uuid4())
+        # Use a file path that includes the job_id
+        full_track_with_job_id = os.path.join(TEST_ENDPOINT_AUDIO_DIR,
+                                              f'{job_id}_full_track.wav')
+        shutil.copyfile(self.full_track_file,
+                        full_track_with_job_id)
+
+        # Create a payload with the new file path
         payload = {
+            "full_track_path": full_track_with_job_id,
             "stem_paths": {
                 "vocals": self.vocals_file,
-                "bass": self.bass_file,
-                "guitar": self.guitar_file,
+                "bass": self.bass_file
             }
         }
-        response = self.client.post('/api/analyze_harmonic', json=payload)
-        self.assertEqual(response.status_code, 200, f"Response data: {response.data.decode()}")
-        results = response.get_json()
 
-        # Check for each instrument and its nested structure
-        for instrument in ["vocals", "bass", "guitar"]:
-            self.assertIn(instrument, results)
-            instrument_result = results[instrument]
-            self.assertIsInstance(instrument_result, dict)
+        response = self.client.post('/api/analyze_harmonic',
+                                    json=payload)
 
-            # Check for top-level feature keys
-            self.assertIn("f0_data", instrument_result)
-            self.assertIn("spectral_features", instrument_result)
-            self.assertIn("timbral_features", instrument_result)
-            self.assertIn("temporal_features", instrument_result)
+        # Clean up the dummy file
+        os.remove(full_track_with_job_id)
 
-            # Check for sub-keys within spectral_features
-            spectral_data = instrument_result["spectral_features"]
-            self.assertIn("spectrogram", spectral_data)
-            self.assertIsInstance(spectral_data["spectrogram"], list)
-            self.assertIn("rms", spectral_data)
-            self.assertIsInstance(spectral_data["rms"], list)
-            self.assertIn("spectral_centroid", spectral_data)
-            self.assertIn("spectral_bandwidth", spectral_data)
-            self.assertIn("spectral_rolloff", spectral_data)
-            self.assertIn("spectral_flatness", spectral_data)
+        self.assertEqual(response.status_code, 202)
+        json_data = response.get_json()
+        self.assertIn('results_url', json_data)
+        expected_url = f"/api/results/{job_id}_harmonic.json"
+        self.assertEqual(json_data["results_url"], expected_url)
 
-            # Check for sub-keys within timbral_features
-            timbral_data = instrument_result["timbral_features"]
-            self.assertIn("mfccs", timbral_data)
-            self.assertIn("chroma_stft", timbral_data)
+    @patch('musictranslator.harmonic_service.app.os.makedirs')
+    def test_valid_request_saves_file_to_disk(self, mock_makedirs):
+        """
+        Test that a valid request correctly saves the analysis results
+        to a JSON file on the mocked disk.
+        """
+        job_id = str(uuid.uuid4())
+        full_track_with_job_id = os.path.join(TEST_ENDPOINT_AUDIO_DIR,
+                                              f'{job_id}_full_track.wav')
+        shutil.copyfile(self.full_track_file, full_track_with_job_id)
 
-            # Check for sub-keys within temporal_features
-            temporal_data = instrument_result["temporal_features"]
-            self.assertIn("onsets", temporal_data)
-            self.assertIsInstance(temporal_data["onsets"], list)
-            self.assertIn("beats", temporal_data)
-            self.assertIsInstance(temporal_data["beats"], list)
-            self.assertIn("tempo", temporal_data)
-            self.assertIsInstance(temporal_data["tempo"], float)
+        mock_file_path = os.path.join(self.temp_results_dir.name,
+                                      f"{job_id}_harmonic.json")
 
-    def test_analyze_all_silent_stem(self):
-        """Test a stem that is silent (should result in null data)."""
-        payload = {"stem_paths": {"vocals": self.silent_file}}
-        response = self.client.post('/api/analyze_harmonic', json=payload)
-        self.assertEqual(response.status_code, 200)
-        results = response.get_json()
-        self.assertIn("vocals", results)
-        self.assertIsNone(
-            results["vocals"],
-            "Analysis for a silent stem should return None"
-        )
+        # Use MagicMock to simulate the file object
+        m = mock_open()
+        with patch('musictranslator.harmonic_service.app.open', m):
 
-    def test_analyze_all_non_existent_stem(self):
-        """Test a stem path that does not exist."""
-        payload = {"stem_paths": {"guitar": self.non_existent_file}}
-        response = self.client.post('/api/analyze_harmonic', json=payload)
-        self.assertEqual(response.status_code, 200)
-        results = response.get_json()
-        self.assertIn("guitar", results)
-        self.assertIsNone(results["guitar"], "Analysis for non-existent file should be None")
+            payload = {
+                "full_track_path": full_track_with_job_id,
+                "stem_paths": {
+                    "vocals": self.vocals_file
+                }
+            }
+            response = self.client.post('/api/analyze_harmonic',
+                                        json=payload)
 
-    def test_analyze_all_empty_stem_paths(self):
-        """Test with an empty stem_paths dictionary."""
-        payload = {"stem_paths": {}}
-        response = self.client.post('/api/analyze_harmonic', json=payload)
-        self.assertEqual(response.status_code, 200)
-        results = response.get_json()
-        self.assertEqual(results, {})
+            # Assert that open was called with the correct path and
+            # mode
+            m.assert_called_once_with(mock_file_path, 'w')
 
-    def test_analyze_all_missing_stem_paths_key(self):
-        """Test request body missing the 'stem_paths' key."""
-        payload = {"some_other_key": "value"}
-        response = self.client.post('/api/analyze_harmonic', json=payload)
+            # Get the mock file handle
+            handle = m()
+
+            # The json.dump function may call write() multiple times,
+            # so we join the content from all calls.
+            written_content = "".join(call.args[0] for call in handle.write.call_args_list)
+            dump_args = json.loads(written_content)
+
+            self.assertIn("job_id", dump_args)
+            self.assertEqual(dump_args["job_id"], job_id)
+
+            # Assert that the full_track analysis data was saved
+            self.assertIn('full_track_analysis', dump_args)
+            self.assertIn('duration',
+                          dump_args['full_track_analysis'])
+
+            # Assert that the stem analysis data was saved
+            self.assertIn('stem_analyses', dump_args)
+            self.assertIn('vocals', dump_args['stem_analyses'])
+            self.assertIn('f0_data',
+                          dump_args['stem_analyses']['vocals'])
+
+        # Clean up the dummy file
+        os.remove(full_track_with_job_id)
+
+    def test_missing_full_track_path_returns_error(self):
+        """
+        Test that a request with a missing full_track_path returns
+        and error.
+        """
+        payload = {
+            "stem_paths": {"vocals": self.vocals_file}
+        }
+        response = self.client.post('/api/analyze_harmonic',
+                                    json=payload)
         self.assertEqual(response.status_code, 400)
-        error_data = response.get_json()
-        self.assertIn("error", error_data)
-        self.assertEqual(error_data["error"], "Missing 'stem_paths' in request body")
+        json_data = response.get_json()
+        self.assertIn('error', json_data)
+        self.assertIn('full_track_path', json_data['error'])
 
-    def test_analyze_f0_stem_paths_not_a_dict(self):
-        """Test when 'stem_paths' is not a dictionary."""
-        payload = {"stem_paths": "not_a_dictionary"}
-        response = self.client.post('/api/analyze_harmonic', json=payload)
+    def test_missing_stem_paths_returns_error(self):
+        """
+        Test that a request with missing stem_paths returns an error.
+        """
+        payload = {
+            "full_track_path": self.full_track_file
+        }
+        response = self.client.post('/api/analyze_harmonic',
+                                    json=payload)
         self.assertEqual(response.status_code, 400)
-        error_data = response.get_json()
-        self.assertIn("error", error_data)
-        self.assertEqual(error_data["error"], "'stem_paths' must be a dictionary")
+        json_data = response.get_json()
+        self.assertIn('error', json_data)
+        self.assertIn('stem_paths', json_data['error'])
 
-    def test_analyze_f0_not_json_request(self):
-        """Test sending a request that is not application/json."""
-        response = self.client.post('/api/analyze_harmonic', data="this is not json")
-        self.assertEqual(response.status_code, 415)
-        error_data = response.get_json()
-        self.assertIn("error", error_data)
-        self.assertEqual(error_data["error"], "Invalid request: Content-Type must be application/json")
+    def test_invalid_job_id_format(self):
+        """
+        Test that a file path without a job_id returns an error.
+        """
+        payload = {
+            "full_track_path": self.test_invalid_job_id_track_file,
+            "stem_paths": {"vocals": self.vocals_file}
+        }
+        response = self.client.post('/api/analyze_harmonic',
+                                    json=payload)
+        self.assertEqual(response.status_code, 400)
+        json_data = response.get_json()
+        self.assertIn('error', json_data)
+        self.assertIn("Filename must be in the format <job_id>_",
+                      json_data['error'])

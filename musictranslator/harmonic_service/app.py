@@ -1,72 +1,182 @@
+"""
+This service provides an API for analyzing the harmonic, spectral,
+timbral and tempora features of audio stems and/or full tracks.
+"""
+
 import os
+import json
 import logging
+import atexit
+import concurrent.futures
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from flask import Flask, request, jsonify
-from .analysis_functions import analyze_audio_features
+from .analysis_functions import analyze_audio_features, analyze_full_track_features
 
 app = Flask(__name__)
 
+# --- Global Configuration & Setup ---
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 logger = app.logger # Use Flask's logger
 
+MAX_CPU_WORKERS = int(os.environ.get("HARMONIC_CPU_WORKERS", "4"))
+
+RESULTS_BASE_URL = "/api/results"
+# The local file path for storing results. This path should
+# correspond to the PVC.
+RESULTS_BASE_PATH = "/shared-data/results/"
+
+# 1. Create the Process Pool ONCE when the application starts.
+# This pool will be reused by all requests to this worker process.
+process_pool = ProcessPoolExecutor(max_workers=MAX_CPU_WORKERS)
+
+# 2. Register a shutdown hook.
+# This ensures that when the Gunicorn worker process exists, it will
+# gracefully shut down the process pool and clean up its child processes.
+def shutdown_pool():
+    logger.info("Shutting down process pool...")
+    process_pool.shutdown(wait=True)
+atexit.register(shutdown_pool)
+
+# --- End Global Setup ---
+
 @app.route('/api/analyze_harmonic', methods=['POST'])
 def analyze_harmonic_endpoint():
     """Endpoint to analyze audio features for given audio stem paths.
-    Expects JSON: {"stem_paths": {"instrument_name": "/path/to/audio.wav", ...}}
-    Returns JSON: {"instrument_name": {"f0_values": {...}, "spectral_features": {...}, ... } or null, ...}
+    Expects JSON: {
+        "full_track_path": "/path/to/full_track.wav",
+        "stem_paths": {"instrument_name": "/path/to/audio.wav", ...}
+    }
+
+    Both "full_track_path" and "stem_paths" are required.
+
+    Returns JSON: {
+        "results_url": "https://musictranslator.org/api/results/unique-id"
+    }
     """
     if not request.is_json:
         logger.warning("Request received is not JSON.")
         return jsonify({"error": "Invalid request: Content-Type must be application/json"}), 415
 
     data = request.get_json()
-    if not data or 'stem_paths' not in data:
-        logger.warning("Request JSON missing 'stem_paths' key.")
-        return jsonify({"error": "Missing 'stem_paths' in request body"}), 400
+    if not data:
+        logger.warning("Request JSON body is empty.")
+        return jsonify({"error": "Request body cannot be empty"}), 400
 
+    full_track_path = data.get('full_track_path')
     stem_paths = data.get('stem_paths')
-    if not isinstance(stem_paths, dict):
-        logger.warning("'stem_paths' os not a dictionary.")
-        return jsonify({"error": "'stem_paths' must be a dictionary"}), 400
 
-    results = {}
-    logger.info(f"Received analysis request for stems: {list(stem_paths.keys())}")
+    if not full_track_path or not isinstance(full_track_path, str) or not os.path.exists(full_track_path):
+        logger.warning("Invalid or missing 'full_track_path': %s.",
+                       full_track_path)
+        return jsonify({
+            "error": "Missing or invalid 'full_track_path'. Must be a valid string path to an existing file."
+        }), 400
 
-    # Use ProcessPoolExecutor to run analyze_audio_features
-    # concurrently.
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        future_to_instrument = {
-            executor.submit(analyze_audio_features, path): instrument
-            for instrument, path in stem_paths.items()
+    if not stem_paths or not isinstance(stem_paths, dict):
+        logger.warning("Invalid or empty 'stem_paths': %s",
+                       stem_paths)
+        return jsonify({
+            "error": "Missing or invalid 'stem_paths'. Must be a non-empty dictionary of instrument paths."
+        }), 400
+
+    # Extract the job_id from the full_track_path as requested.
+    # Assumes filename format is '<job_id>_path/to/full/track.wav'.
+    filename = os.path.basename(full_track_path)
+    if '_' not in filename:
+        logger.error("full_track_path filename does not contain a job_id.")
+        return jsonify({
+            "error": "Filename must be in the format <job_id>_/path/to/full/track.wav"
+        }), 400
+
+    job_id = filename.split('_')[0]
+
+    results_url = os.path.join(RESULTS_BASE_URL, f"{job_id}_harmonic.json")
+
+    results_data = {
+        "job_id": job_id,
+        "results_url": results_url,
+        "full_track_analysis": None,
+        "stem_analyses": {}
+    }
+    logger.info(
+        "Received analysis request for full track: %s and stems: %s",
+        full_track_path, list(stem_paths.keys())
+    )
+
+    # The tasks for the ProcessPoolExecutor. These tasks must be
+    # picklable, so we're passing only string paths.
+    tasks = {
+        'full_track': full_track_path,
+        **{f"stem_{name}": path for name, path in stem_paths.items()}
+    }
+
+    try:
+        # 3. Use the global `process_pool` instead of creating a new one.
+        futures = {
+            process_pool.submit(
+                analyze_full_track_features, full_track_path
+            ): {
+                "type": 'full_track',
+                "id": "full_track"
+            }
         }
+        for name, path in stem_paths.items():
+            futures[process_pool.submit(
+                        analyze_audio_features, path
+            )] = {
+                "type": "stem",
+                "id": name
+            }
 
         # As tasks complete, collect the results
-        for future in as_completed(future_to_instrument):
-            instrument = future_to_instrument[future]
+        for future in as_completed(futures):
+            task_info = futures[future]
+            job_type, identifier = task_info["type"], task_info["id"]
+
             try:
                 analysis_data = future.result()
-                results[instrument] = analysis_data
-                if analysis_data:
-                    logger.info(
-                        "Successfully analyzed %s (path: %s).",
-                        instrument, stem_paths[instrument]
-                    )
+                if job_type == 'full_track':
+                    results_data['full_track_analysis'] = analysis_data
+                    logger.info("Successfully analyzed full track.")
                 else:
-                    logger.info(
-                        "No analysis data returned for %s (path: %s).",
-                        instrument, stem_paths[instrument]
-                    )
+                    results_data['stem_analyses'][identifier] = analysis_data
+                    logger.info("Successfully analyzed stem '%s'.",
+                                identifier)
+
             except Exception as e:
                 logger.error(
-                    "Error during analysis for %s (path: %s): %s",
-                    instrument, stem_paths[instrument],
-                    e, exc_info=True
+                    "Error during analysis for job type '%s' (id: '%s'): %s",
+                    job_type, identifier, e, exc_info=True
                 )
-                results[instrument] = None
+                if job_type == 'full_track':
+                    results_data['full_track_analysis'] = {"error": str(e)}
+                else:
+                    results_data['stem_analyses'][identifier] = {"error": str(e)}
 
-    logger.info(f"Analysis complete. Returning results for: {list(results.keys())}")
-    return jsonify(results), 200
+        # Save the results to disk
+        os.makedirs(RESULTS_BASE_PATH, exist_ok=True)
+        output_path = os.path.join(RESULTS_BASE_PATH,
+                                   f"{job_id}_harmonic.json")
+        with open(output_path, 'w') as f:
+            json.dump(results_data, f, indent=4)
+        logger.info("Successfully saved analysis results to %s",
+                    output_path)
+
+        return jsonify({"results_url": results_url}), 202
+
+    except concurrent.futures.process.BrokenProcessPool as e:
+        logger.critical("CRITICAL: The process pool was broken. Request failed for job_id: %s. %s",
+                        job_id, e, exc_info=True)
+        return jsonify({
+            "error": "A critical error occurred during parallel processing, and the task could not be completed. This is likely due to the service running out of memory. Please try again or contact support if the issue persists."
+        }), 500
+    except Exception as e:
+        logger.error("An unexpected error occurred in the analysis endpoint for job_id: %s. %s",
+                     job_id, e, exc_info=True)
+        return jsonify({
+            "error": "An unexpected server error occurred."
+        }), 500
 
 @app.route('/harmonic/health', methods=['GET'])
 def health_check():

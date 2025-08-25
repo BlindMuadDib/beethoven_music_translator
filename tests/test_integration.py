@@ -146,9 +146,12 @@ class TestIntegration(unittest.TestCase):
 
             # 3. Validate the final result structure
             self.assertIsInstance(final_job_result_data, dict, f"Final job result should be a dictionary, but is {type(final_job_result_data)}.")
+            self.assertIn("mapped_result", final_job_result_data)
+            self.assertIn("harmonic_analysis", final_job_result_data)
+            self.assertIn("drum_analysis", final_job_result_data)
+            self.assertIn("audio_url", final_job_result_data)
 
             # Validate lyrics mapping portion
-            self.assertIn("mapped_result", final_job_result_data)
             mapped_result = final_job_result_data["mapped_result"]
             self.assertIsInstance(mapped_result, list)
             original_lyrics_lines = process_transcript(self.lyrics_file_path)
@@ -186,70 +189,185 @@ class TestIntegration(unittest.TestCase):
                                 f"line_start_time for line {i+1} is not a number or None.")
             print("Mapped result structure and content appear valid.")
 
-            # Validate f0_analysis portion
-            self.assertIn("f0_analysis", final_job_result_data)
-            f0_data = final_job_result_data["f0_analysis"]
+            # Validate harmonic_analysis portion
+            # Start with the harmonic_analysis URL structure
+            harmonic_info = final_job_result_data["harmonic_analysis"]
+            self.assertIsInstance(harmonic_info, dict)
+            self.assertIn("results_url", harmonic_info)
+            harmonic_url = harmonic_info["results_url"]
+            self.assertTrue(harmonic_url.startswith('api/results/file/'))
+            print(f"Harmonic analysis URL found: {harmonic_url}. Fetching data...")
 
-            # Check if F0 analysis reported an error or info message
-            if isinstance(f0_data, dict) and ("error" in f0_data or "info" in f0_data):
-                print(f"F0 Analysis part of the job reported: {f0_data}")
-                # Consider failing the test here if error is present
-                if "error" in f0_data:
-                    self.fail(f"F0 analysis reported an error: {f0_data['error']}")
-            else:
-                self.assertIsInstance(f0_data, dict)
-                self.assertTrue(len(f0_data) > 0)
+            # Fetch data from the harmonic_analysis URL and validate it.
+            full_harmonic_url = f"https://localhost/{harmonic_url}"
+            harmonic_response = requests.get(full_harmonic_url,
+                                             headers=self.host_header,
+                                             verify=self.ssl_verify,
+                                             timeout=60)
+            self.assertEqual(harmonic_response.status_code, 200,
+                             "Failed to fetch harmonic analysis data from its URL.")
+            harmonic_data = harmonic_response.json()
 
-                expected_stems_for_f0 = ["vocals", "bass", "guitar", "piano", "other"]
-                found_f0_stems = 0
-                for stem_name, stem_f0_values, in f0_data.items():
-                    self.assertIn(stem_name, expected_stems_for_f0)
-                    if stem_f0_values is not None:
-                        self.assertIsInstance(stem_f0_values, dict)
-                        self.assertIn("times", stem_f0_values)
-                        self.assertIn("f0_values", stem_f0_values)
-                        self.assertIn("time_interval", stem_f0_values)
-                        self.assertIsInstance(stem_f0_values["times"], list)
-                        self.assertIsInstance(stem_f0_values["f0_values"], list)
-                        self.assertEqual(len(stem_f0_values["times"]), len(stem_f0_values["f0_values"]))
-                        if stem_f0_values["f0_values"]:
-                            self.assertTrue(any(v is not None for v in stem_f0_values["f0_values"]),
-                                            f"Expected at least one non-null F0 value for '{stem_name}' if list is not empty.")
-                        found_f0_stems +=1
-                self.assertTrue(found_f0_stems > 0)
-            print("F0 analysis data structure appears valid.")
+            # Assert structure of harmonic_analysis, a dictionary
+            # with keys full_track_analysis and stem_analyses.
+            self.assertIsInstance(harmonic_data, dict)
+            self.assertEqual(len(harmonic_data), 4)
+            self.assertIn("full_track_analysis", harmonic_data)
+            self.assertIn("stem_analyses", harmonic_data)
 
-            # --- Validate volume_analysis portion ---
-            self.assertIn("volume_analysis", final_job_result_data)
-            volume_data = final_job_result_data["volume_analysis"]
-            print("Validating volume_analysis structure ...")
+            # Assert full_track_analysis is structured correctly
+            full_track_analysis = harmonic_data["full_track_analysis"]
+            self.assertIsInstance(full_track_analysis, dict)
+            self.assertEqual(len(full_track_analysis), 3)
+            self.assertIn("duration", full_track_analysis)
+            self.assertIn("tempo", full_track_analysis)
+            self.assertIn("rms_overall", full_track_analysis)
+            self.assertIsInstance(full_track_analysis["duration"],
+                                    float)
+            self.assertIsInstance(full_track_analysis["tempo"],
+                                    float)
+            self.assertIsInstance(full_track_analysis["rms_overall"],
+                                    dict)
 
-            if isinstance(volume_data, dict) and ("error" in volume_data or "info" in volume_data):
-                self.fail(f"Volume analysis reported an error or info message: {volume_data}")
-            else:
-                self.assertIsInstance(volume_data, dict)
-                self.assertIn("overall_rms", volume_data)
-                self.assertIn("instruments", volume_data)
+            # Assert rms_overall is structured correctly
+            rms_overall = full_track_analysis["rms_overall"]
+            self.assertEqual(len(rms_overall), 2)
+            self.assertIn("times", rms_overall)
+            self.assertIn("values", rms_overall)
+            self.assertIsInstance(rms_overall["times"], list)
+            self.assertIsInstance(rms_overall["values"], list)
 
-                # Validate overall_rms structure
-                self.assertIsInstance(volume_data["overall_rms"], list)
-                if volume_data["overall_rms"]:
-                    self.assertIsInstance(volume_data["overall_rms"][0], list)
-                    self.assertEqual(len(volume_data["overall_rms"][0]), 2)
+            # Assert the stem_analyses dictionary is structured
+            # as expected:
+            # "stem_analyses" {
+        #    "f0_data": {
+        #        "times": times_f0.tolist(),
+        #        "f0_values": f0_list,
+        #     },
+        #     "spectral_features": {
+        #         "times": times_stft.tolist(),
+        #         "frequencies": freqs.tolist(),
+        #         "spectrogram": spectrogram_list,
+        #         "rms": rms,
+        #         "spectral_centroid": spectral_centroid[0],
+        #         "spectral_bandwidth": spectral_bandwidth[0],
+        #         "spectral_rolloff": spectral_rolloff[0],
+        #         "spectral_flatness": spectral_flatness[0],
+        #     },
+        #     "timbral_features": {
+        #         "mfccs": mfccs,
+        #         "chroma_stft": chroma_stft,
+        #     },
+        #     "temporal_features": {
+        #         "onsets": onset_times,
+        #         "tempo": float(tempo),
+        #         "beats": beat_times,
+        #     }
+        # }
+            stem_analyses = harmonic_data["stem_analyses"]
+            expected_stems_for_harmonic = ["vocals", "bass", "guitar", "piano", "other"]
+            found_harmonic_stems = 0
+            for stem_name, stem_harmonic_values, in stem_analyses.items():
+                self.assertIn(stem_name, expected_stems_for_harmonic)
+                if stem_harmonic_values is not None:
+                    self.assertIsInstance(stem_harmonic_values, dict)
+                    self.assertIn("f0_data", stem_harmonic_values)
+                    self.assertIn("spectral_features", stem_harmonic_values)
+                    self.assertIn("timbral_features", stem_harmonic_values)
+                    self.assertIn("temporal_features", stem_harmonic_values)
+                    self.assertIsInstance(
+                        stem_harmonic_values["f0_data"], dict
+                    )
+                    self.assertIsInstance(
+                        stem_harmonic_values["spectral_features"],
+                        dict
+                    )
+                    self.assertIsInstance(
+                        stem_harmonic_values["timbral_features"],
+                        dict
+                    )
+                    self.assertIsInstance(
+                        stem_harmonic_values["temporal_features"],
+                        dict
+                    )
 
-                # Validate instruments structure
-                self.assertIsInstance(volume_data["instruments"], dict)
-                self.assertTrue(len(volume_data["instruments"]) > 0, "Instruments dictionary should not be empty.")
-                for stem_name, stem_rms_values in volume_data["instruments"].items():
-                    self.assertIn("rms_values", stem_rms_values)
-                    self.assertIsInstance(stem_rms_values["rms_values"], list)
-                    if stem_rms_values["rms_values"]:
-                        self.assertIsInstance(stem_rms_values["rms_values"][0], list)
-                        self.assertEqual(len(stem_rms_values["rms_values"][0]), 2)
-                print("Volume analysis data structure appears valid.")
+                    # Assert the structure of f0_data
+                    f0_data = stem_harmonic_values["f0_data"]
+                    self.assertIn("times", f0_data)
+                    self.assertIn("f0_values", f0_data)
+                    self.assertIsInstance(f0_data["times"], list)
+                    self.assertIsInstance(f0_data["f0_values"], list)
+                    self.assertEqual(len(f0_data["times"]), len(f0_data["f0_values"]))
+                    if f0_data["f0_values"]:
+                        self.assertTrue(any(v is not None for v in f0_data["f0_values"]),
+                                        f"Expected at least one non-null F0 value for '{stem_name}' if list is not empty.")
+
+                    # Assert the structure of spectral_features
+                    spectral_features = stem_harmonic_values[
+                        "spectral_features"
+                    ]
+                    self.assertIn("times", spectral_features)
+                    self.assertIn("frequencies", spectral_features)
+                    self.assertIn("spectrogram", spectral_features)
+                    self.assertIn("rms", spectral_features)
+                    self.assertIn("spectral_centroid", spectral_features)
+                    self.assertIn("spectral_bandwidth", spectral_features)
+                    self.assertIn("spectral_rolloff", spectral_features)
+                    self.assertIn("spectral_flatness", spectral_features)
+                    self.assertIsInstance(spectral_features["times"], list)
+                    self.assertIsInstance(spectral_features["frequencies"],
+                                          list)
+                    self.assertIsInstance(spectral_features["spectrogram"],
+                                          list)
+                    self.assertIsInstance(spectral_features["rms"], list)
+                    self.assertIsInstance(
+                        spectral_features["spectral_centroid"], list
+                    )
+                    self.assertIsInstance(
+                        spectral_features["spectral_bandwidth"], list
+                    )
+                    self.assertIsInstance(
+                        spectral_features["spectral_rolloff"], list
+                    )
+                    self.assertIsInstance(
+                        spectral_features["spectral_flatness"], list
+                    )
+
+                    # Assert the timbral_features dictionary
+                    timbral_features = stem_harmonic_values[
+                        "timbral_features"
+                    ]
+                    self.assertIn("mfccs", timbral_features)
+                    self.assertIn("chroma_stft", timbral_features)
+                    self.assertIsInstance(
+                        timbral_features["mfccs"], list
+                    )
+                    self.assertIsInstance(
+                        timbral_features["chroma_stft"], list
+                    )
+
+                    # Assert the temporal_features dictionary
+                    temporal_features = stem_harmonic_values[
+                        "temporal_features"
+                    ]
+                    self.assertIn("onsets", temporal_features)
+                    self.assertIn("tempo", temporal_features)
+                    self.assertIn("beats", temporal_features)
+                    self.assertIsInstance(
+                        temporal_features["onsets"], list
+                    )
+                    self.assertIsInstance(
+                        temporal_features["tempo"], float
+                    )
+                    self.assertIsInstance(
+                        temporal_features["beats"], list
+                    )
+
+                    found_harmonic_stems +=1
+                self.assertTrue(found_harmonic_stems > 0)
+            print("Harmonic analysis data structure appears valid.")
 
             # --- Validate drum_analysis portion ---
-            self.assertIn("drum_analysis", final_job_result_data)
             drums_data = final_job_result_data["drum_analysis"]
             print("Validating drum_analysis structure...")
 
@@ -392,11 +510,23 @@ class TestIntegration(unittest.TestCase):
 
             # --- Validate audio_url and original_filename ---
             print(f"Audio URL: {final_job_result_data["audio_url"]}")
-            self.assertIn("audio_url", final_job_result_data)
             self.assertTrue(final_job_result_data["audio_url"].startswith(f"api/files/{job_id}_"))
             self.assertIn("original_filename", final_job_result_data)
             self.assertEqual(final_job_result_data["original_filename"], os.path.basename(self.audio_file_path))
             print("Audio URL and original filename appear valid.")
+
+            # Clean up the processed audio file and its results
+            audio_url = final_job_result_data["audio_url"]
+            filename_to_delete = os.path.basename(audio_url)
+            cleanup_url = f"{self.base_url}/cleanup/{filename_to_delete}"
+            print(f"Cleaning up file via endpoint: {cleanup_url}")
+            cleanup_response = requests.delete(cleanup_url,
+                                               headers=self.host_header,
+                                               verify=self.ssl_verify,
+                                               timeout=60)
+            self.assertEqual(cleanup_response.status_code, 200,
+                             "Cleanup request failed.")
+            print("Cleanup successful.")
 
         except requests.exceptions.RequestException as e:
             self.fail(f"Request failed: {e}")

@@ -51,48 +51,79 @@ describe('API Module', () => {
         await expect(submitJob(new FormData(), 'code')).rejects.toThrow('Server exploded');
     });
 
-    test('pollJobStatus should poll until status is "finished" and resolve with data', async () => {
-        const finalResult = { status: 'finished', result: {
-            mapped_result: [{
-                'line_text': 'example line',
-                'words': [
-                    {'text': 'example', 'start': 0.1, 'end': 0.5},
-                    {'text': 'line', 'start': 0.6, 'end': 1.0},
-                ],
-                'line_start_time': 0.1,
-                'line_end_time': 1.0
-            }],
-            f0_analysis: {
-                "vocals": {
-                    "times": [0.01, 0.02, 0.03],
-                    "f0_values": [220.0, 220.1, 220.5],
-                    "time_interval": 0.01
+    test('pollJobStatus should poll until status is "finished", see a results_url, fetch it, and return merged data', async () => {
+        const initialFinishedResult = {
+            status: 'finished',
+            result: {
+                mapped_result: [{
+                    'line_text': 'example line',
+                    'words': [
+                        {'text': 'example', 'start': 0.1, 'end': 0.5},
+                        {'text': 'line', 'start': 0.6, 'end': 1.0},
+                    ],
+                    'line_start_time': 0.1,
+                    'line_end_time': 1.0
+                }],
+                harmonic_analysis: {
+                    results_url: 'api/results/file/123-test_harmonic.json'
                 },
-                bass: {
-                    "times": [0.01, 0.02, 0.03],
-                    "f0_values": [110.0, null, 110.2],
-                    "time_interval": 0.01
-                },
+                audio_url: '/api/files/123-test.wav',
+                original_filename: "Test.wav"
+            }
+        };
+
+        // Mock the final harmonic data that will be fetched from the useRealTimers
+        const detailedHarmonicData = {
+            job_id: '123',
+            full_track_analysis: {
+                duration: 10,
+                tempo: 120
             },
-            audio_url: "/shared-data/audio/123-test.wav",
-            original_filename: "Test.wav"
-        } };
+            stem_analyses: {
+                vocals: {
+                    f0_data: {
+                        times: [1],
+                        f0_values: [440]
+                    }
+                }
+            }
+        };
+
         // First call returns "processing", second call returns "finished"
+        // Third call is to the harmonic URL
         fetch
-            .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'processing' }) })
-            .mockResolvedValueOnce({ ok: true, json: async () => finalResult });
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ status: 'processing' })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => initialFinishedResult
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => detailedHarmonicData
+            });
 
         const onProgress = jest.fn();
         const pollPromise = pollJobStatus('job-123', onProgress);
 
         // Use runOnlyPendingTimers to execute the setInterval callback once
         await jest.runOnlyPendingTimersAsync();
-        // Rim again for the second poll
+        // Run again for the second poll
         await jest.runOnlyPendingTimersAsync();
 
-        // Assert the promise resolves with the final data
-        await expect(pollPromise).resolves.toEqual(finalResult);
-        expect(fetch).toHaveBeenCalledTimes(2);
+        const finalResult = await pollPromise;
+
+        // Check that the final result has the detailed harmonic data merged in
+        expect(finalResult.result.harmonic_analysis).toEqual(detailedHarmonicData);
+        expect(finalResult.result.original_filename).toBe('Test.wav');
+        expect(finalResult.result.audio_url).toBe('/api/files/123-test.wav');
+
+        // Check that fetch was called three times with the correct URLs
+        expect(fetch).toHaveBeenCalledTimes(3);
+        expect(fetch).toHaveBeenCalledWith('/api/results/job-123');
+        expect(fetch).toHaveBeenCalledWith('/api/results/file/123-test_harmonic.json');
     });
 
     test('pollJobStatus should reject on "failed" status', async () => {
