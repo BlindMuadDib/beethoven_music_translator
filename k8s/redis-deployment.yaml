@@ -20,10 +20,10 @@ spec:
         - containerPort: 6379
         resources:
           limits:
-            memory: "128Mi"
-            cpu: "200m"
+            memory: "12Gi"
+            cpu: "500m"
           requests:
-            memory: "64Mi"
+            memory: "4Gi"
             cpu: "100m"
         readinessProbe:
           tcpSocket:
