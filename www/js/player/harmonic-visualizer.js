@@ -160,7 +160,12 @@ export class HarmonicVisualizer {
         const spectralBandwidth = stemData.spectral_features.spectral_bandwidth?.[specIndex]?.[0] || 0;
         const spectralRolloff = stemData.spectral_features.spectral_rolloff?.[specIndex]?.[0] || 0;
         const spectralFlatness = stemData.spectral_features.spectral_flatness?.[specIndex]?.[0] || 0;
-        const spectrogram = stemData.spectral_features.spectrogram[specIndex] || [];
+
+        // Use the accessor to get ONLY the current slice because spectrogram
+        // data is immense
+        const spectrogramAccessor = stemData.spectral_features.spectrogram;
+        const spectrogramSlice = spectrogramAccessor ? spectrogramAccessor.getSlice(specIndex) : [];
+
         const frequencies = stemData.spectral_features.frequencies;
         const chromaStft = stemData.timbral_features.chroma_stft[specIndex] || [];
         const mfccs = stemData.timbral_features.mfccs[specIndex] || [];
@@ -189,7 +194,7 @@ export class HarmonicVisualizer {
                 spectralCentroid,
                 spectralBandwidth,
                 spectralFlatness,
-                spectrogram,
+                spectrogramSlice,
                 frequencies,
                 mfccs
             );
@@ -202,7 +207,7 @@ export class HarmonicVisualizer {
                 spectralCentroid,
                 spectralBandwidth,
                 spectralFlatness,
-                spectrogram,
+                spectrogramSlice,
                 frequencies,
                 mfccs
             );

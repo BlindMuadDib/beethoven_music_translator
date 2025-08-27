@@ -89,8 +89,8 @@ describe('API Module', () => {
             }
         };
 
-        // First call returns "processing", second call returns "finished"
-        // Third call is to the harmonic URL
+        // First call returns "processing", second call returns an object with
+        // a .text() method, third call is to the harmonic URL
         fetch
             .mockResolvedValueOnce({
                 ok: true,
@@ -102,7 +102,7 @@ describe('API Module', () => {
             })
             .mockResolvedValueOnce({
                 ok: true,
-                json: async () => detailedHarmonicData
+                text: async () => JSON.stringify(detailedHarmonicData)
             });
 
         const onProgress = jest.fn();

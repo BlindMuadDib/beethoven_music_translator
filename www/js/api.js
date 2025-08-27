@@ -1,3 +1,5 @@
+import { SpectrogramAccessor } from './player/SpectrogramAccessor.js'
+
 /**
  * Handles the form submission.
  * @param {FormData} formData - The form data to submit.
@@ -22,8 +24,8 @@ export async function submitJob(formData, accessCode) {
 /**
  * Polls the results endpoint until the job is finished or fails,
  * and upon completion, fetches the final harmonic data from its URL,
- * returning a single, complete result object.
- * Provides updates on the current processing stage
+ * and processes the large JSON payload safely.
+ * Provides updates on the current processing stage.
  * @param {string} job_id - The ID of the job to poll, returned by back-end after initial job submission.
  * @param {function} onProgress - A callback function for progress updates.
  * @returns {Promise<object>} - A promise that resolves to the final job result data.
@@ -54,28 +56,21 @@ export function pollJobStatus(job_id, onProgress) {
 
                     // Check for the harmonic analysis URL.
                     const harmonicUrl = data.result?.harmonic_analysis?.results_url;
-
                     if (harmonicUrl) {
-                        console.log(`Job finished. Fetching harmonic data from ${harmonicUrl}...`);
-                        try {
-                            // Fetch the detailed harmonic data from the provided URL.
-                            const harmonicResponse = await fetch(`/${harmonicUrl}`);
-                            if (!harmonicResponse.ok) {
-                                throw new Error(`Failed to fetch harmonic data. Status: ${harmonicResponse.status}`);
-                            }
-                            const harmonicData = await harmonicResponse.json();
+                        onProgress({
+                            status: 'finished',
+                            progress_stage: 'Fetching and processing results...'
+                        });
 
-                            // Replace the URL object with the actual data.
-                            data.result.harmonic_analysis = harmonicData;
+                        // Fetch the large JSON as TEXT
+                        const harmonicResponse = await fetch(`/${harmonicUrl}`);
+                        const jsonText = await harmonicResponse.text();
 
-                            console.log("Harmonic data fetched and merged successfully.");
-                            resolve(data); // Resolve with the complete, merged data.
+                        // Safe Parsing Logic
+                        const processedData = processLargeHarmonicJSON(jsonText);
+                        data.result.harmonic_analysis = processedData;
 
-                        } catch (fetchError) {
-                            console.error("Could not fetch harmonic data:", fetchError);
-                            // Reject the promise if the secondary fetch fails.
-                            reject(fetchError);
-                        }
+                        resolve(data);
                     } else {
                         // If there is no URL, resolve the data as-is.
                         resolve(data);
@@ -90,6 +85,42 @@ export function pollJobStatus(job_id, onProgress) {
             }
         }, 5000); // Poll every 5 seconds (adjust as needed)
     });
+}
+
+/**
+ * Safely processes a large harmonic analysis JSON string by replacing huge
+ * spectrogram arrays with SpectrogramAccessor instances.
+ * @param {string} jsonText - The raw JSON string.
+ * @returns {object} The parsed data object with accessors.
+ */
+function processLargeHarmonicJSON(jsonText) {
+    // This regex finds all "spectrogram":[[...]] entries.
+    // It is non-greedy and handles nested brackets.
+    const regex = /"spectrogram":\s*(\[\[.*?\]\])/g;
+
+    let accessors = {};
+
+    // Replace the spectrogram data with a placeholder and create an accessor
+    // for each.
+    const sanitizedJsonText = jsonText.replace(regex, (match, spectrogramString, offset) => {
+        // Find the instrument key that this spectrogram belongs to
+        const lastInstrumentIdx = jsonText.lastIndexOf('"stem_analyses":', offset);
+        const nextInstrumentIdx = jsonText.indexOf('"', lastInstrumentIdx + 30);
+        const instrumentKey = jsonText.substring(lastInstrumentIdx, nextInstrumentIdx).match(/"([^"]+)":\s*\{$/)[1];
+
+        accessors[instrumentKey] = new SpectrogramAccessor(spectrogramString);
+        return `"spectrogram": null`; // Replace with null
+    });
+
+    const data = JSON.parse(sanitizedJsonText);
+
+    // Re-attach the accessors to the parsed object
+    for (const instrument in accessors) {
+        if (data.stem_analyses[instrument]) {
+            data.stem_analyses[instrument].spectral_features.spectrogram = accessors[instrument];
+        }
+    }
+    return data;
 }
 
 /**

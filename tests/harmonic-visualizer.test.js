@@ -1,4 +1,5 @@
 import { HarmonicVisualizer } from '../www/js/player/harmonic-visualizer.js';
+import { SpectrogramAccessor } from '../www/js/player/SpectrogramAccessor.js';
 import { jest } from '@jest/globals';
 
 // Mock the canvas and context before each test
@@ -34,6 +35,12 @@ beforeEach(() => {
 });
 
 describe('HarmonicVisualizer', () => {
+    const rawSpectrogram = [
+        [0.1, 0.2, 0.3],
+        [0.2, 0.5, 0.4],
+        [0.1, 0.3, 0.2]
+    ];
+
     const mockData = {
         full_track_analysis: {
             duration: 10,
@@ -48,12 +55,8 @@ describe('HarmonicVisualizer', () => {
                 f0_data: { times: [0, 2, 4], f0_values: [100, 150, 120] },
                 spectral_features: {
                     times: [0, 2, 4],
-                    frequencies: [0, 22050], // Simpler frequencies for testing
-                    spectrogram: [
-                        [0.1, 0.2, 0.3],
-                        [0.2, 0.5, 0.4],
-                        [0.1, 0.3, 0.2]
-                    ],
+                    frequencies: [0, 22050, 1000], // Simpler frequencies for testing
+                    spectrogram: new SpectrogramAccessor(JSON.stringify(rawSpectrogram)),
                     spectral_centroid: [[1000], [1200], [1100]],
                     spectral_bandwidth: [[500], [600], [550]],
                     spectral_rolloff: [[2000], [3000], [2500]],
@@ -81,6 +84,18 @@ describe('HarmonicVisualizer', () => {
         }
     };
 
+    // Prevent mock pollution from the constructor
+    let updateSpy;
+    beforeEach(() => {
+        // Temporarily disable the update method on prototype before any
+        // instance is created
+        updateSpy = jest.spyOn(HarmonicVisualizer.prototype, 'update').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        // Restore the original method after each test
+        updateSpy.mockRestore();
+    });
+
     test('constructor initializes correctly', () => {
         const visualizer = new HarmonicVisualizer(mockCanvas, mockData);
         expect(visualizer.canvas).toBe(mockCanvas);
@@ -90,6 +105,7 @@ describe('HarmonicVisualizer', () => {
     });
 
     test('update draws columns for all active instruments', () => {
+        updateSpy.mockRestore();
         const visualizer = new HarmonicVisualizer(mockCanvas, mockData);
         visualizer.drawInstrumentColumn = jest.fn();
         visualizer.update(2.5);

@@ -60,27 +60,67 @@ describe('App End-to-End User Flow Integration', () => {
                 'line_start_time': 0.1,
                 'line_end_time': 1.0
             }],
-            "f0_analysis": {
-                "vocals": {
-                    "times": [0.01, 0.02, 0.03],
-                    "f0_values": [220.0, 220.1, 220.5],
-                    "time_interval": 0.01
+            "harmonic_analysis": {
+                "full_track_analysis": {
+                    "duration": 0.5,
+                    "tempo": 136,
+                    "rms_overall": {
+                        "times": [0.1, 0.2, 0.3],
+                        "values": [0.88, 0.99, 0.94]
+                    }
                 },
-                "bass": {
-                    "times": [0.01, 0.02, 0.03],
-                    "f0_values": [110.0, null, 110.2],
-                    "time_interval": 0.01
-                },
-            },
-            "volume_analysis": {
-                "overall_rms": [[0.01, 0.5], [0.02, 0.7]],
-                "instruments": {
+                "stem_analyses": {
                     "vocals": {
-                        "rms_values": [[0.01, 0.4], [0.02, 0.3]]
+                        "f0_data": {
+                            "times": [0.1, 0.2, 0.3],
+                            "f0_values": [440, 660, 880],
+                        },
+                        "spectral_features": {
+                            "times": [0.1, 0.2, 0.3],
+                            "frequencies": [880, 1320, 1760],
+                            "spectrogram": [1000, 500, 4000],
+                            "rms": [0.84, 0.43, 0.91],
+                            "spectral_centroid": [1200, 4500, 3000],
+                            "spectral_bandwidth": [2000, 800, 1600],
+                            "spectral_rolloff": [1600, 3200, 100],
+                            "spectral_flatness": [100, 50, 22],
+                        },
+                        "timbral_features": {
+                            "mfccs": [-150, -100, -95, -60, -40, -30, -20, -10, -5, -1, -0.99, -0.60, -0.01],
+                            "chroma_stft": [44, 22],
+                        },
+                        "temporal_features": {
+                            "onsets": [0.1],
+                            "tempo": 136.0,
+                            "beats": [0.1],
+                        }
                     },
                     "bass": {
-                        "rms_values": [[0.01, 0.3], [0.02, 0.4]]
+                        "f0_data": {
+                            "times": [0.1, 0.2, 0.3],
+                            "f0_values": [null, 80, 100],
+                        },
+                        "spectral_features": {
+                            "times": [0.1, 0.2, 0.3],
+                            "frequencies": [null, 220, 300],
+                            "spectrogram": [null, 400, 500],
+                            "rms": [0.0, 0.5, 0.4],
+                            "spectral_centroid": [null, 1200, 2200],
+                            "spectral_bandwidth": [null, 500, 1000],
+                            "spectral_rolloff": [null, 2200, 4500],
+                            "spectral_flatness": [null, 8000, 8000],
+                        },
+                        "timbral_features": {
+                            "mfccs": [-100, -90, -55, -44, -22, -11, -4, -2, -0.98, -0.77, -0.64, -0.2, -0.004],
+                            "chroma_stft": [null, 3000, 222],
+                        },
+                        "temporal_features": {
+                            "onsets": [0.2],
+                            "tempo": 136.0,
+                            "beats": [0.2],
+                        }
                     },
+                    "other": null
                 }
             },
             "drum_analysis": [
@@ -136,27 +176,67 @@ describe('App End-to-End User Flow Integration', () => {
                 'line_start_time': 0.1,
                 'line_end_time': 1.0
             }],
-            "f0_analysis": {
-                "vocals": {
-                    "times": [0.01, 0.02, 0.03],
-                    "f0_values": [220.0, 220.1, 220.5],
-                    "time_interval": 0.01
+            "harmonic_analysis": {
+                "full_track_analysis": {
+                    "duration": 0.5,
+                    "tempo": 136,
+                    "rms_overall": {
+                        "times": [0.1, 0.2, 0.3],
+                        "values": [0.88, 0.99, 0.94]
+                    }
                 },
-                "bass": {
-                    "times": [0.01, 0.02, 0.03],
-                    "f0_values": [110.0, null, 110.2],
-                    "time_interval": 0.01
-                },
-            },
-            "volume_analysis": {
-                "overall_rms": [[0.01, 0.5], [0.02, 0.7]],
-                "instruments": {
+                "stem_analyses": {
                     "vocals": {
-                        "rms_values": [[0.01, 0.4], [0.02, 0.3]]
+                        "f0_data": {
+                            "times": [0.1, 0.2, 0.3],
+                            "f0_values": [440, 660, 880],
+                        },
+                        "spectral_features": {
+                            "times": [0.1, 0.2, 0.3],
+                            "frequencies": [880, 1320, 1760],
+                            "spectrogram": [1000, 500, 4000],
+                            "rms": [0.84, 0.43, 0.91],
+                            "spectral_centroid": [1200, 4500, 3000],
+                            "spectral_bandwidth": [2000, 800, 1600],
+                            "spectral_rolloff": [1600, 3200, 100],
+                            "spectral_flatness": [100, 50, 22],
+                        },
+                        "timbral_features": {
+                            "mfccs": [-150, -100, -95, -60, -40, -30, -20, -10, -5, -1, -0.99, -0.60, -0.01],
+                            "chroma_stft": [44, 22],
+                        },
+                        "temporal_features": {
+                            "onsets": [0.1],
+                            "tempo": 136.0,
+                            "beats": [0.1],
+                        }
                     },
                     "bass": {
-                        "rms_values": [[0.01, 0.3], [0.02, 0.4]]
+                        "f0_data": {
+                            "times": [0.1, 0.2, 0.3],
+                            "f0_values": [null, 80, 100],
+                        },
+                        "spectral_features": {
+                            "times": [0.1, 0.2, 0.3],
+                            "frequencies": [null, 220, 300],
+                            "spectrogram": [null, 400, 500],
+                            "rms": [0.0, 0.5, 0.4],
+                            "spectral_centroid": [null, 1200, 2200],
+                            "spectral_bandwidth": [null, 500, 1000],
+                            "spectral_rolloff": [null, 2200, 4500],
+                            "spectral_flatness": [null, 8000, 8000],
+                        },
+                        "timbral_features": {
+                            "mfccs": [-100, -90, -55, -44, -22, -11, -4, -2, -0.98, -0.77, -0.64, -0.2, -0.004],
+                            "chroma_stft": [null, 3000, 222],
+                        },
+                        "temporal_features": {
+                            "onsets": [0.2],
+                            "tempo": 136.0,
+                            "beats": [0.2],
+                        }
                     },
+                    "other": null
                 }
             },
             "drum_analysis": [
@@ -220,17 +300,68 @@ describe('App End-to-End User Flow Integration', () => {
                 'line_start_time': 0.1,
                 'line_end_time': 1.0
             }],
-            "f0_analysis": {
-                "vocals": {
-                    "times": [0.01, 0.02, 0.03],
-                    "f0_values": [220.0, 220.1, 220.5],
-                    "time_interval": 0.01
+            "harmonic_analysis": {
+                "full_track_analysis": {
+                    "duration": 0.5,
+                    "tempo": 136,
+                    "rms_overall": {
+                        "times": [0.1, 0.2, 0.3],
+                        "values": [0.88, 0.99, 0.94]
+                    }
                 },
-                "bass": {
-                    "times": [0.01, 0.02, 0.03],
-                    "f0_values": [110.0, null, 110.2],
-                    "time_interval": 0.01
-                },
+                "stem_analyses": {
+                    "vocals": {
+                        "f0_data": {
+                            "times": [0.1, 0.2, 0.3],
+                            "f0_values": [440, 660, 880],
+                        },
+                        "spectral_features": {
+                            "times": [0.1, 0.2, 0.3],
+                            "frequencies": [880, 1320, 1760],
+                            "spectrogram": [1000, 500, 4000],
+                            "rms": [0.84, 0.43, 0.91],
+                            "spectral_centroid": [1200, 4500, 3000],
+                            "spectral_bandwidth": [2000, 800, 1600],
+                            "spectral_rolloff": [1600, 3200, 100],
+                            "spectral_flatness": [100, 50, 22],
+                        },
+                        "timbral_features": {
+                            "mfccs": [-150, -100, -95, -60, -40, -30, -20, -10, -5, -1, -0.99, -0.60, -0.01],
+                            "chroma_stft": [44, 22],
+                        },
+                        "temporal_features": {
+                            "onsets": [0.1],
+                            "tempo": 136.0,
+                            "beats": [0.1],
+                        }
+                    },
+                    "bass": {
+                        "f0_data": {
+                            "times": [0.1, 0.2, 0.3],
+                            "f0_values": [null, 80, 100],
+                        },
+                        "spectral_features": {
+                            "times": [0.1, 0.2, 0.3],
+                            "frequencies": [null, 220, 300],
+                            "spectrogram": [null, 400, 500],
+                            "rms": [0.0, 0.5, 0.4],
+                            "spectral_centroid": [null, 1200, 2200],
+                            "spectral_bandwidth": [null, 500, 1000],
+                            "spectral_rolloff": [null, 2200, 4500],
+                            "spectral_flatness": [null, 8000, 8000],
+                        },
+                        "timbral_features": {
+                            "mfccs": [-100, -90, -55, -44, -22, -11, -4, -2, -0.98, -0.77, -0.64, -0.2, -0.004],
+                            "chroma_stft": [null, 3000, 222],
+                        },
+                        "temporal_features": {
+                            "onsets": [0.2],
+                            "tempo": 136.0,
+                            "beats": [0.2],
+                        }
+                    },
+                    "other": null
+                }
             },
             "drum_analysis": [
                 {

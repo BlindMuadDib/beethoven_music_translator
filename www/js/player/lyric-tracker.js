@@ -49,7 +49,7 @@ export class LyricTracker {
         lineHeightPadding: 10,
         ballRadius: 7,
         ballColor: 'red',
-        textColor: 'black',
+        textColor: '#eeeeee',
         wordSpacing: 8
     };
 

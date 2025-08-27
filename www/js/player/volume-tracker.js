@@ -40,21 +40,27 @@ export class VolumeTracker {
 
     /**
      * Processes and normalizes the raw overall RMS data from the backend.
-     * @param {Array<[number, number]>} overallRmsData - The overall_rms array from the API.
+     * RMS data is nested within harmonic_analysis.full_track_analysis.rms_overall as an array [time, value]
+     * @param {object} harmonicAnalysisData - The harmonic_analysis object
+     * from the API
      */
-    setData(overallRmsData) {
-        if (!overallRmsData || overallRmsData.length === 0) {
+    setData(harmonicAnalysisData) {
+        // Drill down to get the rms_overall object
+        const overallRmsData = harmonicAnalysisData?.full_track_analysis.rms_overall;
+
+        if (!overallRmsData || !overallRmsData.values || overallRmsData.values.length === 0) {
             this.normalizedData = null;
             return;
         }
 
-        const values = overallRmsData.map(d => d[1]);
+        const { times, values } = overallRmsData;
         const minRms = Math.min(...values);
         const maxRms = Math.max(...values);
         const range = maxRms - minRms;
 
         this.normalizedData = {
-            values: overallRmsData.map(([time, value]) => {
+            values: times.map((time, index) => {
+                const value = values[index];
                 const normalized = range > 0 ? (value - minRms) / range : 0;
                 return [time, normalized];
             }),
