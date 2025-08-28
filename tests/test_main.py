@@ -651,7 +651,7 @@ class TestMain(unittest.TestCase):
         mock_map.assert_called_once_with("/fake/alignment.json", "/fake/lyrics.txt")
 
         expected_harmonic_result = {
-            "static_results_url": f"api/results/file/{self.test_job_id}_harmonic.json",
+            "static_results_url": f"api/results/file/{self.test_job_id}_audio_harmonic.json",
             "streaming_urls": {
                 "vocals": f"api/results/stream/{self.test_job_id}_vocals.ndjson?stem_path=%2Ffake%2Fstems%2Fvocals.wav",
                 "bass": f"api/results/stream/{self.test_job_id}_bass.ndjson?stem_path=%2Ffake%2Fstems%2Fbass.wav"

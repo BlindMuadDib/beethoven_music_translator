@@ -337,9 +337,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                 "info": "Harmonic analysis did not complete successfully."
             }
         else:
-            harmonic_analysis_result = {
-                "results_url": thread_results_shared["harmonic_analysis_urls"]
-            }
+            harmonic_analysis_result = thread_results_shared["harmonic_analysis_urls"]
         logger.info("Step 2.2 (Harmonic Analysis) Complete.")
 
         # Process Drum Results

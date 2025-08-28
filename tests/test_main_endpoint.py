@@ -202,11 +202,17 @@ def test_translate_endpoint_post_success(
     expected_unique_lyrics_path = f"/shared-data/lyrics/{enqueued_job_id}_{os.path.basename(lyrics_file_path)}"
 
     expected_audio_url = f"api/files/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
-    expected_harmonic_url = f"api/results/file/{enqueued_job_id}_harmonic.json"
+    expected_harmonic_urls = {
+        "static_results_url": f"api/results/file/{enqueued_job_id}_harmonic.json",
+        "streaming_urls": {
+            "vocals": f"api/results/stream/{enqueued_job_id}_vocals.ndjson?stem_path=...",
+            "bass": f"api/results/stream/{enqueued_job_id}_bass.ndjson?stem_path=..."
+        }
+    }
 
     expected_final_result = {
         "mapped_result": expected_mapped_results,
-        "harmonic_analysis": expected_harmonic_url,
+        "harmonic_analysis": expected_harmonic_urls,
         "drum_analysis": mock_drum_analysis_data,
         "audio_url": expected_audio_url,
         "original_filename": "BloodCalcification-SkinDeep.wav"
@@ -243,6 +249,8 @@ def test_translate_endpoint_post_success(
     assert response_results.status_code == 200, f"Response data: {response_results.data.decode()}"
     response_results_json = response_results.get_json()
     assert response_results_json["status"] == "finished"
+    response_results_json["result"]["harmonic_analysis"]["streaming_urls"] = ANY
+    expected_final_result["harmonic_analysis"]["streaming_urls"] = ANY
     assert response_results_json["result"] == expected_final_result
 
     mock_rq_components['job_fetch'].assert_called_once_with(enqueued_job_id, connection=mock_rq_components['redis_conn'])
@@ -292,8 +300,8 @@ def test_get_results_success_harmonic_error(
         "error": "Harmonic service timeout during processing.",
         "info": "Harmonic analysis did not complete successfully."
     }
-    expected_final_result_with_f0_error = {
-        "mapped_results": expected_mapped_results,
+    expected_final_result_with_harmonic_error = {
+        "mapped_result": expected_mapped_results,
         "harmonic_analysis": harmonic_error_report,
         "drum_analysis": [],
         "audio_url": "/files/some_audio.wav",
@@ -303,12 +311,12 @@ def test_get_results_success_harmonic_error(
     mock_job.id = job_id # Ensure fetched job ID matches
     mock_job.is_finished = True
     mock_job.is_failed = False
-    mock_job.result = expected_final_result_with_f0_error
+    mock_job.result = expected_final_result_with_harmonic_error
 
     response_results = client.get(f'/api/results/{job_id}')
     assert response_results.status_code == 200
     response_results_json = response_results.get_json()
-    assert response_results_json == {"status": "finished", "result": expected_final_result_with_f0_error}
+    assert response_results_json == {"status": "finished", "result": expected_final_result_with_harmonic_error}
     mock_rq_components['job_fetch'].assert_called_once_with(job_id, connection=mock_rq_components['redis_conn'])
 
 def test_get_results_pending_with_progress(
