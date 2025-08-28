@@ -9,8 +9,8 @@ import logging
 import atexit
 import concurrent.futures
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from flask import Flask, request, jsonify
-from .analysis_functions import analyze_audio_features, analyze_full_track_features
+from flask import Flask, request, jsonify, Response, stream_with_context
+from .analysis_functions import get_static_features, generate_time_sliced_features, analyze_full_track_features
 
 app = Flask(__name__)
 
@@ -91,11 +91,11 @@ def analyze_harmonic_endpoint():
 
     job_id = filename.split('_')[0]
 
-    results_url = os.path.join(RESULTS_BASE_URL, f"{job_id}_harmonic.json")
+    static_results_url = os.path.join(RESULTS_BASE_URL, f"{job_id}_harmonic.json")
 
     results_data = {
         "job_id": job_id,
-        "results_url": results_url,
+        "results_url": static_results_url,
         "full_track_analysis": None,
         "stem_analyses": {}
     }
@@ -123,7 +123,7 @@ def analyze_harmonic_endpoint():
         }
         for name, path in stem_paths.items():
             futures[process_pool.submit(
-                        analyze_audio_features, path
+                        get_static_features, path
             )] = {
                 "type": "stem",
                 "id": name
@@ -163,7 +163,10 @@ def analyze_harmonic_endpoint():
         logger.info("Successfully saved analysis results to %s",
                     output_path)
 
-        return jsonify({"results_url": results_url}), 202
+        return jsonify({
+            "results_url": static_results_url,
+            "job_id": job_id
+        }), 202
 
     except concurrent.futures.process.BrokenProcessPool as e:
         logger.critical("CRITICAL: The process pool was broken. Request failed for job_id: %s. %s",
@@ -177,6 +180,35 @@ def analyze_harmonic_endpoint():
         return jsonify({
             "error": "An unexpected server error occurred."
         }), 500
+
+@app.route('/api/results/stream/<job_id>_<stem_name>.ndjson', methods=['GET'])
+def stream_results_ndjson(job_id, stem_name):
+    """
+    Streams time-sliced analysis data in NDJSON format.
+    The client must provide the stem path via a query parameter.
+    """
+    stem_path = request.args.get('stem_path')
+    if not stem_path or not os.path.exists(stem_path):
+        return jsonify({"error": "Invalid or missing 'stem_path' parameter."}), 400
+
+    logger.info(
+        "Initiating streaming for job_id: %s, stem: %s",
+        job_id, stem_name
+    )
+
+    def generate():
+        """Generator function to yield NDJSON lines."""
+        for time_slice_data in generate_time_sliced_features(stem_path):
+            yield json.dumps(time_slice_data) + "\n"
+
+    response = Response(
+        stream_with_context(generate()),
+        mimetype='application/x-ndjson'
+    )
+    # This header is crucial for front-end streaming parsers.
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+
+    return response
 
 @app.route('/harmonic/health', methods=['GET'])
 def health_check():

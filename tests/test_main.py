@@ -259,7 +259,13 @@ class TestMain(unittest.TestCase):
             'line_start_time': 0.1,
             'line_end_time': 1.0
         }]
-        expected_harmonic_url = f"/shared-data/results/{self.mock_uuid}_faketrack_harmonic.json"
+        expected_harmonic_urls = {
+            "static_results_url": f"/shared-data/results/{self.mock_uuid}_faketrack_harmonic.json",
+            "streaming_urls": {
+                "vocals": f"api/results/stream/{self.test_job_id}_vocals.ndjson?stem_path=%2Ffake%2Fstems%2Fvocals.wav",
+                "bass": f"api/results/stream/{self.test_job_id}_bass.ndjson?stem_path=%2Ffake%2Fstems%2Fbass.wav"
+            }
+        }
         expected_drum_analysis = {
             "hits": [
                 {
@@ -300,7 +306,7 @@ class TestMain(unittest.TestCase):
 
         expected_result = {
             "mapped_result": expected_mapped_result,
-            "harmonic_analysis": expected_harmonic_url,
+            "harmonic_analysis": expected_harmonic_urls,
             "drum_analysis": expected_drum_analysis,
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
@@ -495,8 +501,12 @@ class TestMain(unittest.TestCase):
     @patch('musictranslator.main.map_transcript')
     @patch('musictranslator.main.get_current_job')
     @patch('threading.Thread')
+    @patch('builtins.open')
+    @patch('os.path.exists')
     def test_background_translation_task_orchestration(
         self,
+        mock_os_exists,
+        mock_open,
         mock_thread_class,
         mock_get_job,
         mock_map,
@@ -512,6 +522,7 @@ class TestMain(unittest.TestCase):
         mock_job = mock_get_job.return_value
         mock_job.meta = {} # Ensure meta is a dict
         mock_job.connection = self.mock_get_conn
+        mock_job.id = self.test_job_id # Ensure job has an ID for URL generation
 
         mock_split.return_value = {
             "vocals": "/fake/stems/vocals.wav",
@@ -521,8 +532,18 @@ class TestMain(unittest.TestCase):
         # Mocking the direct calls that threads would make
         mock_align_lyrics.return_value = "/fake/alignment.json"
         mock_req_harmonic.return_value = {
-            "results_url": f"api/results/file/{self.mock_uuid}_audio_harmonic.json"
+            "results_url": f"api/results/file/{self.test_job_id}_audio_harmonic.json"
         }
+        mock_os_exists.return_value = True
+        mock_static_results_content = json.dumps({
+            "stem_analyses": {
+                "vocals": {"duration": 10.0}, # Presence of key indicates success
+                "bass": {"duration": 10.0},
+                "drums": {"error": "Some error"} # This one failed, shouldn't get a stream URL
+            }
+        })
+        # mock_open().read().__enter__() is a common pattern for mocking file reads
+        mock_open.return_value.__enter__.return_value.read.return_value = mock_static_results_content
         mock_req_drum.return_value = {
             "hits": [
                 {
@@ -629,9 +650,17 @@ class TestMain(unittest.TestCase):
 
         mock_map.assert_called_once_with("/fake/alignment.json", "/fake/lyrics.txt")
 
+        expected_harmonic_result = {
+            "static_results_url": f"api/results/file/{self.test_job_id}_harmonic.json",
+            "streaming_urls": {
+                "vocals": f"api/results/stream/{self.test_job_id}_vocals.ndjson?stem_path=%2Ffake%2Fstems%2Fvocals.wav",
+                "bass": f"api/results/stream/{self.test_job_id}_bass.ndjson?stem_path=%2Ffake%2Fstems%2Fbass.wav"
+            }
+        }
+
         expected_final_result = {
             "mapped_result": mock_map.return_value,
-            "harmonic_analysis": mock_req_harmonic.return_value,
+            "harmonic_analysis": expected_harmonic_result,
             "drum_analysis": mock_req_drum.return_value,
             "audio_url": "api/files/jobid_audio.wav",
             "original_filename": "audio.wav"

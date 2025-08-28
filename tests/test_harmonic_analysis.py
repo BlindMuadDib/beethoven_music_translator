@@ -8,13 +8,13 @@ import os
 import numpy as np
 import soundfile as sf
 import librosa
-from musictranslator.harmonic_service.analysis_functions import analyze_audio_features
+from musictranslator.harmonic_service.analysis_functions import generate_time_sliced_features, analyze_full_track_features, get_static_features
 
 # Define a directory for test audio files, relative to this test script
 TEST_AUDIO_DIR = os.path.join(os.path.dirname(__file__), 'test_audio')
 SAMPLE_RATE = 44100 # Standard sample rate
 
-class TestFundFreq(unittest.TestCase):
+class TestHarmonicAnalysis(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -100,114 +100,120 @@ class TestFundFreq(unittest.TestCase):
                 else:
                     print(f"Warning: {TEST_AUDIO_DIR} not removed because it's not empty.")
 
-    # --- Helper Function ---
-
-    def _assert_successful_analysis(self, result_dict, known_freq=None, tolerance_hz=15.0):
-        """
-        Helper method to assert that the full analysis result
-        dictionary is valid.
-        """
-        self.assertIsInstance(result_dict, dict)
-
-        # Check top-level keys
-        self.assertIn("f0_data", result_dict)
-        self.assertIn("spectral_features", result_dict)
-        self.assertIn("timbral_features", result_dict)
-        self.assertIn("temporal_features", result_dict)
-
-        # Check f0_data structure and values
-        f0_data = result_dict["f0_data"]
-        self.assertIsInstance(f0_data, dict)
-        self.assertIn("times", f0_data)
-        self.assertIn("f0_values", f0_data)
-        self.assertEqual(
-            len(f0_data["times"]), len(f0_data["f0_values"])
-        )
-        self.assertTrue(
-            any(f is not None for f in f0_data["f0_values"]),
-            "Expected some voiced frames"
-        )
-
-        if known_freq:
-            voiced_f0 = [f for f in f0_data["f0_values"] if f is not None]
-            self.assertTrue(len(voiced_f0) > 0)
-            mean_f0 = np.mean(voiced_f0)
-            self.assertAlmostEqual(
-                mean_f0, known_freq, delta=tolerance_hz,
-                msg=f"Mean F0 ({mean_f0:.2f} Hz) not close to known F0 ({known_freq:.2f} Hz)"
-            )
-
-        # Check spectral_features
-        spectral_features = result_dict["spectral_features"]
-        self.assertIsInstance(spectral_features, dict)
-        self.assertIn("spectrogram", spectral_features)
-        self.assertIsInstance(spectral_features["spectrogram"], list)
-        self.assertTrue(len(spectral_features["spectrogram"]) > 0)
-        self.assertIn("rms", spectral_features)
-        self.assertIsInstance(spectral_features["rms"], list)
-
-        # Check timbral_features
-        timbral_features = result_dict["timbral_features"]
-        self.assertIsInstance(timbral_features, dict)
-        self.assertIn("mfccs", timbral_features)
-        self.assertIsInstance(timbral_features["mfccs"], list)
-        self.assertTrue(len(timbral_features["mfccs"]) > 0)
-        self.assertIn("chroma_stft", timbral_features)
-        self.assertIsInstance(timbral_features["chroma_stft"], list)
-        self.assertTrue(len(timbral_features["chroma_stft"]) > 0)
-
-        # Check temporal_features
-        temporal_features = result_dict["temporal_features"]
-        self.assertIsInstance(temporal_features, dict)
-        self.assertIn("onsets", temporal_features)
-        self.assertIsInstance(temporal_features["onsets"], list)
-        self.assertIn("beats", temporal_features)
-        self.assertIsInstance(temporal_features["beats"], list)
-        self.assertIn("tempo", temporal_features)
-        self.assertIsInstance(temporal_features["tempo"], float)
-
     # --- "Success" Tests (using sine waves for predictability) ---
-    def test_full_analysis_a4_sine_success(self):
-        """Test a full analysis on a predictable A4 sine wave."""
-        result = analyze_audio_features(self.a4_sine_file)
-        self.assertIsNotNone(result)
-        self._assert_successful_analysis(
-            result, known_freq=self.known_freq_a4
+
+    def test_generate_time_sliced_features(self):
+        """
+        Test that the generator function yields valid time-sliced data.
+        """
+        # Use a longer, predictable file for this test
+        long_sine_file = os.path.join(TEST_AUDIO_DIR, 'long_a4_sine.wav')
+        sf.write(
+            long_sine_file,
+            librosa.tone(self.known_freq_a4, sr=SAMPLE_RATE, duration=3.0),
+            SAMPLE_RATE
         )
 
-    def test_full_analysis_c3_sine_success(self):
-        """Test a successful F0 analysis on a predictable C3 sine wave."""
-        result = analyze_audio_features(self.c3_sine_file)
-        self.assertIsNotNone(result)
-        self._assert_successful_analysis(
-            result, known_freq=self.known_freq_c3
-        )
+        gen = generate_time_sliced_features(long_sine_file)
+
+        # Check the first few and the last few yielded items
+        data_points = list(gen)
+
+        self.assertTrue(len(data_points) > 5,
+                        f"'len(data_points)' should be 5, but is: {len(data_points)}")
+
+        # Check the first data point
+        first_slice = data_points[0]
+        self.assertIn("time", first_slice)
+        self.assertIsInstance(first_slice["time"], float)
+        self.assertIn("f0_data", first_slice)
+        self.assertIn("spectral_centroid", first_slice)
+
+        self.assertIsInstance(first_slice["mfccs"], list)
+        self.assertIsInstance(first_slice["f0_data"], float)
+
+        # Check the last data point
+        last_slice = data_points[-1]
+        self.assertIn("time", last_slice)
+        self.assertIn("f0_data", last_slice)
+
+        # Clean up the test file
+        os.remove(long_sine_file)
+
+    def test_get_static_features(self):
+        """
+        Test get_static_features function for returning static,
+        one-off features.
+        """
+        result = get_static_features(self.a4_sine_file)
+        self.assertIsInstance(result, dict)
+        self.assertIn("duration", result)
+        self.assertIsInstance(result["duration"], float)
+        self.assertIn("tempo", result)
+        self.assertIsInstance(result["tempo"], float)
+        self.assertIn("beats", result)
+        self.assertIsInstance(result["beats"], list)
+        self.assertIn("onsets", result)
+        self.assertIsInstance(result["onsets"], list)
+
+    def test_analyze_full_track_features(self):
+        """Test the high-level full track analysis."""
+        result = analyze_full_track_features(self.a4_sine_file)
+        self.assertIsInstance(result, dict)
+        self.assertIn("duration", result)
+        self.assertIsInstance(result["duration"], float)
+        self.assertIn("tempo", result)
+        self.assertIsInstance(result["tempo"], float)
+        self.assertIn("rms_overall", result)
+        self.assertIsInstance(result["rms_overall"]["times"], list)
+        self.assertIsInstance(result["rms_overall"]["values"], list)
 
     # --- "No Audio" / Specific Condition Tests ---
-    def test_fund_freq_silent_audio_returns_none(self):
+    def test_silent_audio_returns_none(self):
         """Test that analysis of a silent audio track returns None."""
-        response = analyze_audio_features(self.silent_file)
-        self.assertIsNone(
-            response, "Analysis of silent audio should return None"
-        )
+        static_result = get_static_features(self.silent_file)
+        self.assertIsNone(static_result,
+                          "Analysis of silent audio should return None")
 
-    def test_fund_freq_very_short_audio_returns_none(self):
+        generator_result = list(generate_time_sliced_features(
+            self.silent_file
+        ))
+        self.assertEqual(len(generator_result), 0,
+                         "Generator for silent audio should yield no data")
+
+    def test_very_short_audio_returns_none(self):
         """Test that analysis of a very short audio track returns None."""
-        # This relies on the duration check in analyze_fund_freq
-        response = analyze_audio_features(self.very_short_file)
-        self.assertIsNone(
-            response,
-            "Analysis of very short audio should return None due to duration constraints."
-        )
+        static_result = get_static_features(self.very_short_file)
+        self.assertIsNone(static_result,
+                          "Analysis of very short audio should return None")
+
+        generator_result = list(generate_time_sliced_features(
+            self.very_short_file
+        ))
+        self.assertEqual(len(generator_result), 0,
+                         "Generator for silent audio should yield no data")
 
     # --- "Error" Condition Tests (File-level errors) ---
     def test_fund_freq_non_existent_file_returns_none(self):
         """Test analysis of a non-existent file returns None"""
-        response = analyze_audio_features(self.non_existent_file)
-        self.assertIsNone(response, "Analysis of a non-existent file should return None.")
+        static_result = get_static_features(self.non_existent_file)
+        self.assertIsNone(static_result,
+                          "Analysis of a non-existent file should return None.")
+
+        generator_result = list(generate_time_sliced_features(
+            self.non_existent_file
+        ))
+        self.assertEqual(len(generator_result), 0,
+                         "Generator for corrupted file should yield no data.")
 
     def test_fund_freq_corrupted_file_returns_none(self):
         """Test analysis of a corrupted/invalid audio file (text file) returns None."""
-        response = analyze_audio_features(self.corrupted_file_dummy)
-        self.assertIsNone(response, "Analysis of a corrupted file should return None.")
+        static_result = get_static_features(self.corrupted_file_dummy)
+        self.assertIsNone(static_result,
+                           "Analysis of a corrupted file should return None.")
 
+        generator_result = list(generate_time_sliced_features(
+            self.corrupted_file_dummy
+        ))
+        self.assertEqual(len(generator_result), 0,
+                         "Generator for corrupted file should yield no data.")

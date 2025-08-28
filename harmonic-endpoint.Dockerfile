@@ -15,7 +15,7 @@ WORKDIR /wheels
 
 COPY musictranslator/harmonic_service/requirements.txt .
 
-RUN pip wheel --no-cache-dir --no-binary numpy --no-binary scipy -r requirements.txt
+RUN pip wheel --no-cache-dir -r requirements.txt
 
 FROM python:3.12-slim-bookworm AS runner
 

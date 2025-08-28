@@ -14,6 +14,7 @@ import tempfile
 import requests
 import podman
 from podman.errors import APIError, ImageNotFound, NotFound as PodmanNotFound, BuildError as PodmanBuildError
+from musictranslator.harmonic_service.app import MAX_CPU_WORKERS
 
 # Configuration for the E2E test
 HARMONIC_SERVICE_IMAGE_TAG = "harmonic_service:latest"
@@ -151,6 +152,7 @@ class TestHarmonicServiceE2EPodman(unittest.TestCase):
                 HARMONIC_SERVICE_IMAGE_TAG,
                 name=HARMONIC_SERVICE_CONTAINER_NAME,
                 ports={'20006/tcp': 20006},
+                environment={"HARMONIC_CPU_WORKERS": "4"},
                 volumes={
                     HOST_STEM_DIR: {
                         'bind': CONTAINER_STEM_DIR,
@@ -234,103 +236,17 @@ class TestHarmonicServiceE2EPodman(unittest.TestCase):
         is valid.
         """
         self.assertIsInstance(instrument_result, dict)
-        self.assertIn("f0_data", instrument_result)
-        self.assertIn("spectral_features", instrument_result)
-        self.assertIn("timbral_features", instrument_result)
-        self.assertIn("temporal_features", instrument_result)
+        self.assertIn("duration", instrument_result)
+        self.assertIn("tempo", instrument_result)
+        self.assertIn("beats", instrument_result)
+        self.assertIn("onsets", instrument_result)
 
-        # Validate the f0_data structure
-        f0_data = instrument_result["f0_data"]
-        self.assertIn("times", f0_data)
-        self.assertIn("f0_values", f0_data)
-        self.assertIsInstance(
-            f0_data["times"], list,
-            f"Received type: {type(f0_data['times'])}, 'F0[times]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            f0_data["f0_values"], list,
-            f"Received type: {type(f0_data['f0_values'])}, 'F0[f0_values]' should be type: 'list'."
-        )
-        self.assertEqual(
-            len(f0_data["times"]), len(f0_data["f0_values"])
-        )
-        self.assertTrue(
-            any(v is not None for v in f0_data["f0_values"]),
-            f"Expected at least one non-null F0 value"
-        )
-
-        # Validate all spectral_features
-        spectral_features = instrument_result["spectral_features"]
-        self.assertIn("times", spectral_features)
-        self.assertIn("frequencies", spectral_features)
-        self.assertIn("spectrogram", spectral_features)
-        self.assertIn("rms", spectral_features)
-        self.assertIn("spectral_centroid", spectral_features)
-        self.assertIn("spectral_bandwidth", spectral_features)
-        self.assertIn("spectral_rolloff", spectral_features)
-        self.assertIn("spectral_flatness", spectral_features)
-        self.assertIsInstance(
-            spectral_features["times"], list,
-            f"Received type: {type(spectral_features['times'])}, 'spectral_features[times]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            spectral_features["frequencies"], list,
-            f"Received type: {type(spectral_features['frequencies'])}, 'spectral_features[frequencies]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            spectral_features["spectrogram"], list,
-            f"Received type: {type(spectral_features['spectrogram'])}, 'spectral_features[spectrogram]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            spectral_features["rms"], list,
-            f"Received type: {type(spectral_features['rms'])}, 'spectral_features[rms]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            spectral_features["spectral_centroid"], list,
-            f"Received type: {type(spectral_features['spectral_centroid'])}, 'spectral_features[spectral_centroid]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            spectral_features["spectral_bandwidth"], list,
-            f"Received type: {type(spectral_features['spectral_bandwidth'])}, 'spectral_features[spectral_bandwidth]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            spectral_features["spectral_rolloff"], list,
-            f"Received type: {type(spectral_features['spectral_rolloff'])}, 'spectral_features[spectral_rolloff]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            spectral_features["spectral_flatness"], list,
-            f"Received type: {type(spectral_features['spectral_flatness'])}, 'spectral_features[spectral_flatness]' should be type: 'list'."
-        )
-
-        # Validate all timbral_features
-        timbral_features = instrument_result["timbral_features"]
-        self.assertIn("mfccs", timbral_features)
-        self.assertIn("chroma_stft", timbral_features)
-        self.assertIsInstance(
-            timbral_features["mfccs"], list,
-            f"Received type: {type(timbral_features['mfccs'])}, 'timbral_features['mfccs]' should be type: 'list'.")
-        self.assertIsInstance(
-            timbral_features["chroma_stft"], list,
-            f"Received type: {type(timbral_features['chroma_stft'])}, 'timbral_features[chroma_stft]' should be type: 'list'."
-        )
-
-        # Validate all temporal_features
-        temporal_features = instrument_result["temporal_features"]
-        self.assertIn("onsets", temporal_features)
-        self.assertIn("beats", temporal_features)
-        self.assertIn("tempo", temporal_features)
-        self.assertIsInstance(
-            temporal_features["onsets"], list,
-            f"Received type: {type(temporal_features['onsets'])}, 'temporal_features[onsets]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            temporal_features["beats"], list,
-            f"Received type: {type(temporal_features['beats'])}, 'temporal_features['beats]' should be type: 'list'."
-        )
-        self.assertIsInstance(
-            temporal_features["tempo"], float,
-            f"Received type: {type(temporal_features['tempo'])}, 'temporal_features[tempo]' should be type: 'float'."
-        )
+        self.assertIsInstance(instrument_result['duration'], float)
+        self.assertIsInstance(instrument_result['tempo'], float)
+        self.assertIsInstance(instrument_result['beats'], list)
+        self.assertIsInstance(instrument_result['onsets'], list)
+        self.assertTrue(len(instrument_result['beats']) > 0,
+                        "Expected at least one beat")
 
     def _assert_full_track_analysis_results_valid(
         self,

@@ -8,6 +8,7 @@ After validating audio and lyrics are valid files
 """
 
 import os
+import json
 import shutil
 import subprocess
 import logging
@@ -17,6 +18,7 @@ import time
 import magic
 import redis
 import rq
+from urllib.parse import urlencode
 from rq import Queue, get_current_job
 from rq.job import Job
 from flask import Flask, request, jsonify, g, send_from_directory, make_response
@@ -120,6 +122,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
     logger.setLevel(logging.INFO)
 
     try:
+        job_id = job.id if job else str(uuid.uuid4())
         logger.info(
             "Starting background task for audio: %s, lyrics: %s",
             unique_audio_path,
@@ -160,7 +163,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
 
         thread_results_shared = {
             "alignment_json_path": None, "alignment_error": None,
-            "harmonic_analysis_url": None, "harmonic_error": None,
+            "harmonic_analysis_urls": None, "harmonic_error": None,
             "drum_analysis_data": None, "drum_error": None,
         }
 
@@ -204,8 +207,14 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                     )
                     return
 
-                harmonic_results_url = initial_response.get("results_url")
-                if not harmonic_results_url:
+                if isinstance(initial_response, dict) and "info" in initial_response:
+                    # Case where no relevant stems were sent
+                    thread_results_shared["harmonic_analysis_data"] = initial_response
+                    logger.info("Harmonic-Thread: %s", initial_response["info"])
+                    return
+
+                static_results_url = initial_response.get("results_url")
+                if not static_results_url:
                     err_msg = f"Harmonic service did not return a results_url. Response: {initial_response}"
                     thread_results_shared["harmonic_error"] = err_msg
                     logger.error("Harmonic-Thread: %s",
@@ -213,11 +222,11 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                     return
 
                 # Poll for the results file on the shared volume
-                harmonic_results_filename = os.path.basename(harmonic_results_url)
+                static_results_filename = os.path.basename(static_results_url)
                 # The results are saved in a different subdirectory on the
                 # shared volume
                 expected_file_path = os.path.join('/shared-data/results',
-                                                  harmonic_results_filename)
+                                                  static_results_filename)
                 logger.info("Harmonic-Thread: Polling for results file at %s",
                             expected_file_path)
 
@@ -231,12 +240,37 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                     time.sleep(1)
 
                 if file_found:
-                    # Success! Store the URL to be served by the endpoint
-                    final_url = f"api/results/file/{harmonic_results_filename}"
-                    thread_results_shared["harmonic_analysis_url"] = final_url
+                    streaming_urls = {}
+                    try:
+                        with open(expected_file_path, 'r') as f:
+                            harmonic_data = json.load(f)
+
+                        stem_analyses = harmonic_data.get("stem_analyses", {})
+                        for stem_name, stem_path in separate_result.items():
+                            # Check if this stem was successfully analyzed (has a non-error entry)
+                            if stem_name in stem_analyses and stem_analyses[stem_name] and "error" not in stem_analyses[stem_name]:
+                                query_params = urlencode({"stem_path": stem_path})
+                                stream_filename = f"{job_id}_{stem_name}.ndjson"
+                                streaming_urls[stem_name] = f"api/results/stream/{stream_filename}?{query_params}"
+                        logger.info(
+                            "Harmonic-Thread: Successfully generated streaming URLs for: %s",
+                            list(streaming_urls.keys())
+                        )
+                    except (json.JSONDecodeError, IOError) as e:
+                        logger.error(
+                            "Harmonic-Thread: Failed to read or parse static results file %s: %s",
+                            expected_file_path, e
+                        )
+                        # Continue without streaming URLs, but log the problem
+
+                    final_url_static = f"api/results/file/{static_results_filename}"
+                    thread_results_shared["harmonic_analysis_urls"] = {
+                        "static_results_url": final_url_static,
+                        "streaming_urls": streaming_urls
+                    }
                     logger.info(
-                        "Harmonic-Thread: Harmonic analysis complete. URL: %s",
-                        final_url
+                        "Harmonic-Thread: Harmonic analysis complete. Static URL: %s",
+                        final_url_static
                     )
                 else:
                     err_msg = f"Timed out waiting for harmonic analysis results file: {expected_file_path}"
@@ -304,7 +338,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
             }
         else:
             harmonic_analysis_result = {
-                "results_url": thread_results_shared["harmonic_analysis_url"]
+                "results_url": thread_results_shared["harmonic_analysis_urls"]
             }
         logger.info("Step 2.2 (Harmonic Analysis) Complete.")
 

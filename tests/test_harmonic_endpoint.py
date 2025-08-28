@@ -151,7 +151,7 @@ class TestHarmonicServiceEndpoint(unittest.TestCase):
         self.assertEqual(json_data["results_url"], expected_url)
 
     @patch('musictranslator.harmonic_service.app.os.makedirs')
-    def test_valid_request_saves_file_to_disk(self, mock_makedirs):
+    def test_valid_request_saves_static_metadata_to_disk(self, mock_makedirs):
         """
         Test that a valid request correctly saves the analysis results
         to a JSON file on the mocked disk.
@@ -200,11 +200,49 @@ class TestHarmonicServiceEndpoint(unittest.TestCase):
             # Assert that the stem analysis data was saved
             self.assertIn('stem_analyses', dump_args)
             self.assertIn('vocals', dump_args['stem_analyses'])
-            self.assertIn('f0_data',
-                          dump_args['stem_analyses']['vocals'])
+            self.assertIn('tempo', dump_args['stem_analyses']['vocals'])
+
+            # Assert that the large, time-series data is NOT in this file
+            self.assertNotIn('f0_data', dump_args['stem_analyses']['vocals'])
 
         # Clean up the dummy file
         os.remove(full_track_with_job_id)
+
+    def test_stream_ndjson_endpoint(self):
+        """
+        Test that the new NDJSON streaming endpoint correctly returns a
+        stream of time-sliced JSON objects.
+        """
+        job_id = str(uuid.uuid4())
+        # Use a short sine wave file for this test to speed it up
+        temp_file = os.path.join(TEST_ENDPOINT_AUDIO_DIR,
+                                 f'{job_id}_test.wav')
+        create_sine_wave_file(temp_file, freq=440.0, duration=1.0)
+
+        # The streaming endpoint will receive the path via a query param
+        stream_url = f"/api/results/stream/{job_id}_test.ndjson?stem_path={temp_file}"
+
+        response = self.client.get(stream_url)
+        os.remove(temp_file)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, 'application/x-ndjson')
+
+        # Now, parse the response to ensure it's valid NDJSON
+        decoded_data = response.data.decode('utf-8')
+        lines = decoded_data.strip().split('\n')
+        self.assertTrue(len(lines) > 0)
+
+        for line in lines:
+            try:
+                data = json.loads(line)
+                self.assertIsInstance(data, dict)
+                # Check for some expected keys in each slice
+                self.assertIn('time', data)
+                self.assertIn('f0_data', data)
+                self.assertIn('mfccs', data)
+            except json.JSONDecodeError:
+                self.fail("Response content is not valid NDJSON.")
 
     def test_missing_full_track_path_returns_error(self):
         """
