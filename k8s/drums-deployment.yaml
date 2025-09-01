@@ -15,20 +15,20 @@ spec:
     spec:
       containers:
         - name: drums-client-container
-          image: docker.io/blindmuaddib/drums-endpoint:1
+          image: docker.io/blindmuaddib/drums-endpoint:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 25941
           env:
             - name: DRUMS_CPU_WORKERS
-              value: "8"
+              value: "4"
           resources:
             requests:
               cpu: "4"
-              memory: "8Gi"
+              memory: "4Gi"
             limits:
               cpu: "8"
-              memory: "16Gi"
+              memory: "8Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/separator_output

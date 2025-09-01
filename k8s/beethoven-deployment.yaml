@@ -26,7 +26,7 @@ spec:
               memory: "256Mi"
             limits:
               cpu: "500m"
-              memory: "10Gi"
+              memory: "1Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/audio

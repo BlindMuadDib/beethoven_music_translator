@@ -251,7 +251,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
                             if stem_name in stem_analyses and stem_analyses[stem_name] and "error" not in stem_analyses[stem_name]:
                                 query_params = urlencode({"stem_path": stem_path})
                                 stream_filename = f"{job_id}_{stem_name}.ndjson"
-                                streaming_urls[stem_name] = f"api/results/stream/{stream_filename}?{query_params}"
+                                streaming_urls[stem_name] = f"api/harmonic/stream/{stream_filename}?{query_params}"
                         logger.info(
                             "Harmonic-Thread: Successfully generated streaming URLs for: %s",
                             list(streaming_urls.keys())

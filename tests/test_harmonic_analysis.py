@@ -105,6 +105,19 @@ class TestHarmonicAnalysis(unittest.TestCase):
     def test_generate_time_sliced_features(self):
         """
         Test that the generator function yields valid time-sliced data.
+        The data is structured: {
+                "time": float(t),
+                "f0_data": float(f0_data[0][i]) if not np.isnan(f0_data[0][i]) else None,
+                "spectral_centroid": float(spectral_centroid[0][i]),
+                "spectral_bandwidth": float(spectral_bandwidth[0][i]),
+                "spectral_rolloff": float(spectral_rolloff[0][i]),
+                "spectral_flatness": float(spectral_flatness[0][i]),
+                "rms": float(rms[0][i]),
+                "mfccs": mfccs_raw[:, i].tolist(),
+                "chroma_stft": chroma_stft_raw[:, i].tolist(),
+                "spectrogram": S_magnitude[:, i].tolist(),
+                "frequencies": frequencies.tolist(),
+            }
         """
         # Use a longer, predictable file for this test
         long_sine_file = os.path.join(TEST_AUDIO_DIR, 'long_a4_sine.wav')
@@ -128,14 +141,51 @@ class TestHarmonicAnalysis(unittest.TestCase):
         self.assertIsInstance(first_slice["time"], float)
         self.assertIn("f0_data", first_slice)
         self.assertIn("spectral_centroid", first_slice)
+        self.assertIn("spectral_bandwidth", first_slice)
+        self.assertIn("spectral_rolloff", first_slice)
+        self.assertIn("spectral_flatness", first_slice)
+        self.assertIn("rms", first_slice)
+        self.assertIn("mfccs", first_slice)
+        self.assertIn("chroma_stft", first_slice)
+        self.assertIn("spectrogram", first_slice)
+        self.assertIn("frequencies", first_slice)
 
-        self.assertIsInstance(first_slice["mfccs"], list)
         self.assertIsInstance(first_slice["f0_data"], float)
+        self.assertIsInstance(first_slice["spectral_centroid"], float)
+        self.assertIsInstance(first_slice["spectral_bandwidth"], float)
+        self.assertIsInstance(first_slice["spectral_rolloff"], float)
+        self.assertIsInstance(first_slice["spectral_flatness"], float)
+        self.assertIsInstance(first_slice["rms"], float)
+        self.assertIsInstance(first_slice["mfccs"], list)
+        self.assertIsInstance(first_slice["chroma_stft"], list)
+        self.assertIsInstance(first_slice["spectrogram"], list)
+        self.assertIsInstance(first_slice["frequencies"], list)
 
         # Check the last data point
         last_slice = data_points[-1]
         self.assertIn("time", last_slice)
+        self.assertIsInstance(last_slice["time"], float)
         self.assertIn("f0_data", last_slice)
+        self.assertIn("spectral_centroid", last_slice)
+        self.assertIn("spectral_bandwidth", last_slice)
+        self.assertIn("spectral_rolloff", last_slice)
+        self.assertIn("spectral_flatness", last_slice)
+        self.assertIn("rms", last_slice)
+        self.assertIn("mfccs", last_slice)
+        self.assertIn("chroma_stft", last_slice)
+        self.assertIn("spectrogram", last_slice)
+        self.assertIn("frequencies", last_slice)
+
+        self.assertIsInstance(last_slice["f0_data"], float)
+        self.assertIsInstance(last_slice["spectral_centroid"], float)
+        self.assertIsInstance(last_slice["spectral_bandwidth"], float)
+        self.assertIsInstance(last_slice["spectral_rolloff"], float)
+        self.assertIsInstance(last_slice["spectral_flatness"], float)
+        self.assertIsInstance(last_slice["rms"], float)
+        self.assertIsInstance(last_slice["mfccs"], list)
+        self.assertIsInstance(last_slice["chroma_stft"], list)
+        self.assertIsInstance(last_slice["spectrogram"], list)
+        self.assertIsInstance(last_slice["frequencies"], list)
 
         # Clean up the test file
         os.remove(long_sine_file)

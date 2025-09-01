@@ -5,7 +5,7 @@ range of audio features for the separate instrument stem tracks
 import numpy as np
 import librosa
 
-def analyze_full_track_features(audio_path, sr=44100):
+def analyze_full_track_features(audio_path, sr=22050):
     """
     Performs a high-level analysis of a full audio track, primarily
     for duration, tempo and overall volume.
@@ -55,7 +55,7 @@ def analyze_full_track_features(audio_path, sr=44100):
         print(f"Error processing full track {audio_path}: {e}")
         return None
 
-def generate_time_sliced_features(audio_path, sr=44100):
+def generate_time_sliced_features(audio_path, sr=22050):
     """
     Performs a comprehensive analysis of an audio file, extracting a
     variety of features. Generates a sequence of dictionaries, where
@@ -101,7 +101,7 @@ def generate_time_sliced_features(audio_path, sr=44100):
 
         # Use hop_length for features that need a time series
         f0_data = librosa.pyin(
-                    y, fmin=librosa.note_to_hz('F1'),
+                    y, fmin=librosa.note_to_hz('C2'),
                     fmax=librosa.note_to_hz('G8'), sr=sr
                 )
         spectral_centroid = librosa.feature.spectral_centroid(
@@ -143,7 +143,7 @@ def generate_time_sliced_features(audio_path, sr=44100):
         print(f"Error processing {audio_path}: {e}")
         return None
 
-def get_static_features(audio_path, sr=44100):
+def get_static_features(audio_path, sr=22050):
     """
     Computes static, one-time features like tempo, beats, and onsets.
     """

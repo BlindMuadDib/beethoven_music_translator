@@ -23,10 +23,10 @@ spec:
             - containerPort: 22227
           resources:
             requests:
-              cpu: "4"
+              cpu: "2"
               memory: "24Gi"
             limits:
-              cpu: "10"
+              cpu: "12"
               memory: "40Gi"
           volumeMounts:
             - name: shared-data

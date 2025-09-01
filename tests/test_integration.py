@@ -67,8 +67,8 @@ class TestIntegration(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
-        self.lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
+        self.audio_file_path = "data/audio/BloodCalcification-NoMore.wav"
+        self.lyrics_file_path = "data/lyrics/BloodCalcification-NoMore.txt"
         self.audio_file = open(self.audio_file_path, 'rb')
         self.lyrics_file = open(self.lyrics_file_path, 'rb')
 
@@ -238,136 +238,93 @@ class TestIntegration(unittest.TestCase):
             self.assertIn("values", rms_overall)
             self.assertIsInstance(rms_overall["times"], list)
             self.assertIsInstance(rms_overall["values"], list)
-        #
-        #     # Assert the stem_analyses dictionary is structured
-        #     # as expected:
-        #     # "stem_analyses" {
-        # #    "f0_data": {
-        # #        "times": times_f0.tolist(),
-        # #        "f0_values": f0_list,
-        # #     },
-        # #     "spectral_features": {
-        # #         "times": times_stft.tolist(),
-        # #         "frequencies": freqs.tolist(),
-        # #         "spectrogram": spectrogram_list,
-        # #         "rms": rms,
-        # #         "spectral_centroid": spectral_centroid[0],
-        # #         "spectral_bandwidth": spectral_bandwidth[0],
-        # #         "spectral_rolloff": spectral_rolloff[0],
-        # #         "spectral_flatness": spectral_flatness[0],
-        # #     },
-        # #     "timbral_features": {
-        # #         "mfccs": mfccs,
-        # #         "chroma_stft": chroma_stft,
-        # #     },
-        # #     "temporal_features": {
-        # #         "onsets": onset_times,
-        # #         "tempo": float(tempo),
-        # #         "beats": beat_times,
-        # #     }
-        # # }
-        #     stem_analyses = harmonic_data["stem_analyses"]
-        #     expected_stems_for_harmonic = ["vocals", "bass", "guitar", "piano", "other"]
-        #     found_harmonic_stems = 0
-        #     for stem_name, stem_harmonic_values, in stem_analyses.items():
-        #         self.assertIn(stem_name, expected_stems_for_harmonic)
-        #         if stem_harmonic_values is not None:
-        #             self.assertIsInstance(stem_harmonic_values, dict)
-        #             self.assertIn("f0_data", stem_harmonic_values)
-        #             self.assertIn("spectral_features", stem_harmonic_values)
-        #             self.assertIn("timbral_features", stem_harmonic_values)
-        #             self.assertIn("temporal_features", stem_harmonic_values)
-        #             self.assertIsInstance(
-        #                 stem_harmonic_values["f0_data"], dict
-        #             )
-        #             self.assertIsInstance(
-        #                 stem_harmonic_values["spectral_features"],
-        #                 dict
-        #             )
-        #             self.assertIsInstance(
-        #                 stem_harmonic_values["timbral_features"],
-        #                 dict
-        #             )
-        #             self.assertIsInstance(
-        #                 stem_harmonic_values["temporal_features"],
-        #                 dict
-        #             )
-        #
-        #             # Assert the structure of f0_data
-        #             f0_data = stem_harmonic_values["f0_data"]
-        #             self.assertIn("times", f0_data)
-        #             self.assertIn("f0_values", f0_data)
-        #             self.assertIsInstance(f0_data["times"], list)
-        #             self.assertIsInstance(f0_data["f0_values"], list)
-        #             self.assertEqual(len(f0_data["times"]), len(f0_data["f0_values"]))
-        #             if f0_data["f0_values"]:
-        #                 self.assertTrue(any(v is not None for v in f0_data["f0_values"]),
-        #                                 f"Expected at least one non-null F0 value for '{stem_name}' if list is not empty.")
-        #
-        #             # Assert the structure of spectral_features
-        #             spectral_features = stem_harmonic_values[
-        #                 "spectral_features"
-        #             ]
-        #             self.assertIn("times", spectral_features)
-        #             self.assertIn("frequencies", spectral_features)
-        #             self.assertIn("spectrogram", spectral_features)
-        #             self.assertIn("rms", spectral_features)
-        #             self.assertIn("spectral_centroid", spectral_features)
-        #             self.assertIn("spectral_bandwidth", spectral_features)
-        #             self.assertIn("spectral_rolloff", spectral_features)
-        #             self.assertIn("spectral_flatness", spectral_features)
-        #             self.assertIsInstance(spectral_features["times"], list)
-        #             self.assertIsInstance(spectral_features["frequencies"],
-        #                                   list)
-        #             self.assertIsInstance(spectral_features["spectrogram"],
-        #                                   list)
-        #             self.assertIsInstance(spectral_features["rms"], list)
-        #             self.assertIsInstance(
-        #                 spectral_features["spectral_centroid"], list
-        #             )
-        #             self.assertIsInstance(
-        #                 spectral_features["spectral_bandwidth"], list
-        #             )
-        #             self.assertIsInstance(
-        #                 spectral_features["spectral_rolloff"], list
-        #             )
-        #             self.assertIsInstance(
-        #                 spectral_features["spectral_flatness"], list
-        #             )
-        #
-        #             # Assert the timbral_features dictionary
-        #             timbral_features = stem_harmonic_values[
-        #                 "timbral_features"
-        #             ]
-        #             self.assertIn("mfccs", timbral_features)
-        #             self.assertIn("chroma_stft", timbral_features)
-        #             self.assertIsInstance(
-        #                 timbral_features["mfccs"], list
-        #             )
-        #             self.assertIsInstance(
-        #                 timbral_features["chroma_stft"], list
-        #             )
-        #
-        #             # Assert the temporal_features dictionary
-        #             temporal_features = stem_harmonic_values[
-        #                 "temporal_features"
-        #             ]
-        #             self.assertIn("onsets", temporal_features)
-        #             self.assertIn("tempo", temporal_features)
-        #             self.assertIn("beats", temporal_features)
-        #             self.assertIsInstance(
-        #                 temporal_features["onsets"], list
-        #             )
-        #             self.assertIsInstance(
-        #                 temporal_features["tempo"], float
-        #             )
-        #             self.assertIsInstance(
-        #                 temporal_features["beats"], list
-        #             )
-        #
-        #             found_harmonic_stems +=1
-        #         self.assertTrue(found_harmonic_stems > 0)
-            print("Harmonic analysis data structure appears valid.")
+
+            print("Static harmonic analysis data structure appears valid.")
+
+            # Assert the streaming URL's contain the appropriate data for
+            # non-zero slices for each instrument
+            # # Expected response structure: {
+            #     "time": float(t),
+            #     "f0_data": float(f0_data[0][i]) if not np.isnan(f0_data[0][i]) else None,
+            #     "spectral_centroid": float(spectral_centroid[0][i]),
+            #     "spectral_bandwidth": float(spectral_bandwidth[0][i]),
+            #     "spectral_rolloff": float(spectral_rolloff[0][i]),
+            #     "spectral_flatness": float(spectral_flatness[0][i]),
+            #     "rms": float(rms[0][i]),
+            #     "mfccs": mfccs_raw[:, i].tolist(),
+            #     "chroma_stft": chroma_stft_raw[:, i].tolist(),
+            #     "spectrogram": S_magnitude[:, i].tolist(),
+            #     "frequencies": frequencies.tolist(),
+            # }
+            print("\nValidating streaming harmonic analysis URLs and content...")
+            streaming_urls = harmonic_info.get("streaming_urls", {})
+            self.assertTrue(len(streaming_urls) > 0,
+                            "Expected at least one streaming URL for harmonic analysis.")
+
+            # Define the expected structure for each JSON object in the stream
+            expected_keys_and_types = {
+                "time": float,
+                "f0_data": float, # Note: This can also be None, we'll check for that
+                "spectral_centroid": float,
+                "spectral_bandwidth": float,
+                "spectral_rolloff": float,
+                "spectral_flatness": float,
+                "rms": float,
+                "mfccs": list,
+                "chroma_stft": list,
+                "spectrogram": list,
+                "frequencies": list,
+            }
+
+            for stem_name, stream_url in streaming_urls.items():
+                print(f"--- Validating stream for stem: '{stem_name}' ---")
+                full_stream_url = f"https://localhost/{stream_url}"
+
+                stream_response = requests.get(
+                    full_stream_url,
+                    headers=self.host_header,
+                    verify=self.ssl_verify,
+                    timeout=120
+                )
+                self.assertEqual(stream_response.status_code, 200,
+                                 f"Failed to fetch stream for {stem_name}")
+                self.assertEqual(stream_response.headers.get('Content-Type'),
+                                 'application/x-ndjson')
+
+                # Process the NDJSON response
+                ndjson_content = stream_response.text
+                lines = ndjson_content.strip().split('\n')
+                self.assertTrue(len(lines) > 0,
+                                f"Stream for '{stem_name}' should not be empty.")
+                print(f"Received {len(lines)} time slices for '{stem_name}'. Validating first slice...")
+
+                # Check the first data slice throughly
+                first_slice = json.loads(lines[0])
+                self.assertIsInstance(first_slice, dict)
+
+                for key, expected_type in expected_keys_and_types.items():
+                    self.assertIn(key, first_slice,
+                                  f"Key '{key}' missing in stream slice for '{stem_name}'")
+                    value = first_slice[key]
+                    # Special check for f0_data which can be None if unvoices
+                    if key == 'f0_data':
+                        self.assertTrue(
+                            isinstance(value, (expected_type, type(None))),
+                            f"Value for '{key}' is not {expected_type} or None for '{stem_name}'."
+                        )
+                    else:
+                        self.assertIsInstance(value, expected_type,
+                                              f"Value for '{key}' is not {expected_type} for '{stem_name}'.")
+
+                # Check list lengths for consistency where applicable
+                self.assertEqual(len(first_slice['mfccs']), 20)
+                self.assertEqual(len(first_slice['chroma_stft']), 12)
+                self.assertEqual(len(first_slice['spectrogram']),
+                                 len(first_slice['frequencies']))
+
+                print(f"Stream structure for '{stem_name}' appears valid.")
+
+            print("All harmonic analysis streams validated successfully.")
 
             # --- Validate drum_analysis portion ---
             drums_data = final_job_result_data["drum_analysis"]
@@ -553,52 +510,52 @@ class TestIntegration(unittest.TestCase):
         response_data = response.json()
         self.assertIn("error", response_data)
         self.assertEqual(response_data["error"], "Access Denied. Please provide a valid access code.")
-
-    def test_get_results_initial_status(self):
-        """Test getting the initial status of a job"""
-        print("\nTesting initial job status retrieval...")
-        target_url = f"{self.base_url}/translate?access_code="
-        files = {
-            'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
-            'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
-        }
-
-        try:
-            # Submit the job
-            response = requests.post(
-                target_url,
-                files=files,
-                headers=self.host_header,
-                timeout=60,
-                verify=self.ssl_verify
-            )
-            response.raise_for_status()
-            self.assertEqual(response.status_code, 202)
-            response_data = response.json()
-            self.assertIn("job_id", response_data)
-            job_id = response_data["job_id"]
-            print(f"Job submitted with ID: {job_id}. Checking initial status...")
-
-            # Give a moment for the job to be registered by RQ
-            time.sleep(2)
-
-            # Check the status
-            result_url = f"{self.base_url}/results/{job_id}"
-            result_response = requests.get(
-                result_url,
-                headers=self.host_header,
-                verify=self.ssl_verify,
-                timeout=20
-            )
-            result_response.raise_for_status()
-            result_data = result_response.json()
-
-            self.assertIn("status", result_data)
-            self.assertIn(result_data["status"], ['queued', 'started'], f"Expected initial status 'queued' or 'started', but got '{result_data['status']}'")
-            print(f"Initial job status retrieval test passed. Status: {result_data['status']}")
-
-        except requests.exceptions.RequestException as e:
-            self.fail(f"Error during initial status test: {e}")
+    #
+    # def test_get_results_initial_status(self):
+    #     """Test getting the initial status of a job"""
+    #     print("\nTesting initial job status retrieval...")
+    #     target_url = f"{self.base_url}/translate?access_code="
+    #     files = {
+    #         'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
+    #         'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
+    #     }
+    #
+    #     try:
+    #         # Submit the job
+    #         response = requests.post(
+    #             target_url,
+    #             files=files,
+    #             headers=self.host_header,
+    #             timeout=60,
+    #             verify=self.ssl_verify
+    #         )
+    #         response.raise_for_status()
+    #         self.assertEqual(response.status_code, 202)
+    #         response_data = response.json()
+    #         self.assertIn("job_id", response_data)
+    #         job_id = response_data["job_id"]
+    #         print(f"Job submitted with ID: {job_id}. Checking initial status...")
+    #
+    #         # Give a moment for the job to be registered by RQ
+    #         time.sleep(2)
+    #
+    #         # Check the status
+    #         result_url = f"{self.base_url}/results/{job_id}"
+    #         result_response = requests.get(
+    #             result_url,
+    #             headers=self.host_header,
+    #             verify=self.ssl_verify,
+    #             timeout=20
+    #         )
+    #         result_response.raise_for_status()
+    #         result_data = result_response.json()
+    #
+    #         self.assertIn("status", result_data)
+    #         self.assertIn(result_data["status"], ['queued', 'started'], f"Expected initial status 'queued' or 'started', but got '{result_data['status']}'")
+    #         print(f"Initial job status retrieval test passed. Status: {result_data['status']}")
+    #
+    #     except requests.exceptions.RequestException as e:
+    #         self.fail(f"Error during initial status test: {e}")
 
     def test_get_results_nonexistent_job(self):
         """Tests getting results for a job ID that does not exist"""

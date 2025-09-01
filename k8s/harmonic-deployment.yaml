@@ -21,14 +21,14 @@ spec:
             - containerPort: 20006
           env:
             - name: HARMONIC_CPU_WORKERS
-              value: "4"
+              value: "1"
           resources:
             requests:
-              cpu: "2"
-              memory: "6Gi"
-            limits:
               cpu: "4"
               memory: "16Gi"
+            limits:
+              cpu: "8"
+              memory: "32Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/results

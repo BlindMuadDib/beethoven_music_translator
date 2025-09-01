@@ -19,7 +19,7 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = app.logger # Use Flask's logger
 
-MAX_CPU_WORKERS = int(os.environ.get("HARMONIC_CPU_WORKERS", "4"))
+MAX_CPU_WORKERS = int(os.environ.get("HARMONIC_CPU_WORKERS", "1"))
 
 RESULTS_BASE_URL = "/api/results"
 # The local file path for storing results. This path should
@@ -181,7 +181,7 @@ def analyze_harmonic_endpoint():
             "error": "An unexpected server error occurred."
         }), 500
 
-@app.route('/api/results/stream/<job_id>_<stem_name>.ndjson', methods=['GET'])
+@app.route('/api/harmonic/stream/<job_id>_<stem_name>.ndjson', methods=['GET'])
 def stream_results_ndjson(job_id, stem_name):
     """
     Streams time-sliced analysis data in NDJSON format.

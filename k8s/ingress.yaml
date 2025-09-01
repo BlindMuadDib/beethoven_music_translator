@@ -15,6 +15,13 @@ spec:
   - host: musictranslator.org
     http:
       paths:
+      - path: /api/harmonic
+        pathType: Prefix
+        backend:
+          service:
+            name: harmonic-service
+            port:
+              number: 20006
       - path: /api/files
         pathType: Prefix
         backend:

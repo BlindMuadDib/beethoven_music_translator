@@ -7,6 +7,7 @@ API request to a running container to validate its behavior.
 import unittest
 import shutil
 import os
+import math
 import time
 import json
 import uuid
@@ -14,6 +15,7 @@ import tempfile
 import requests
 import podman
 from podman.errors import APIError, ImageNotFound, NotFound as PodmanNotFound, BuildError as PodmanBuildError
+from urllib.parse import quote
 from musictranslator.harmonic_service.app import MAX_CPU_WORKERS
 
 # Configuration for the E2E test
@@ -41,7 +43,7 @@ DOCKERFILE_PATH_IN_CONTEXT = f"{PROJECT_ROOT}/harmonic-endpoint.Dockerfile"
 # Host directory containing the real audio stems for E2E testing
 HOST_STEM_DIR = os.path.join(PROJECT_ROOT, "data", "separator_output",
                              "htdemucs_6s",
-                             "BloodCalcification-NoMore")
+                             "Depressed-RichardOmelette")
 # Host directory for the full track file
 HOST_FULL_TRACK_DIR = os.path.join(PROJECT_ROOT, "data", "audio")
 
@@ -56,7 +58,7 @@ STEM_FILES = [
     "bass.wav", "guitar.wav", "piano.wav",
     "other.wav", "vocals.wav"
 ]
-FULL_TRACK_FILENAME = "BloodCalcification-NoMore.wav"
+FULL_TRACK_FILENAME = "Depressed-RichardOmelette.wav"
 FULL_TRACK_FILE_HOST_PATH = os.path.join(HOST_FULL_TRACK_DIR,
                                FULL_TRACK_FILENAME)
 
@@ -152,7 +154,7 @@ class TestHarmonicServiceE2EPodman(unittest.TestCase):
                 HARMONIC_SERVICE_IMAGE_TAG,
                 name=HARMONIC_SERVICE_CONTAINER_NAME,
                 ports={'20006/tcp': 20006},
-                environment={"HARMONIC_CPU_WORKERS": "4"},
+                environment={"HARMONIC_CPU_WORKERS": "2"},
                 volumes={
                     HOST_STEM_DIR: {
                         'bind': CONTAINER_STEM_DIR,
@@ -277,6 +279,41 @@ class TestHarmonicServiceE2EPodman(unittest.TestCase):
         self.assertEqual(len(rms_overall["times"]),
                          len(rms_overall["values"]))
 
+    def _validate_slice_structure(self, slice_data, instrument_name):
+        """
+        Validates the structure and types of a single time slice from the
+        NDJSON stream.
+        """
+        self.assertIsInstance(slice_data, dict,
+                              f"Slice for '{instrument_name}' is not a dict.")
+
+        expected_keys_and_types = {
+            "time": float, "f0_data": float, "spectral_centroid": float,
+            "spectral_bandwidth": float, "spectral_rolloff": float,
+            "spectral_flatness": float, "rms": float, "mfccs": list,
+            "chroma_stft": list, "spectrogram": list, "frequencies": list,
+        }
+
+        for key, expected_type in expected_keys_and_types.items():
+            self.assertIn(key, slice_data,
+                          f"Key '{key}' missing in stream slice for '{instrument_name}'")
+            value = slice_data[key]
+            # f0_data can be None if unvoiced
+            if key == 'f0_data':
+                self.assertTrue(isinstance(value, (expected_type, type(None))),
+                                f"Value for '{key}' is not a {expected_type} or None for '{instrument_name}'")
+            else:
+                self.assertIsInstance(value, expected_type,
+                                      f"Value for '{key}' is not a {expected_type} for '{instrument_name}'")
+
+        # Additional content validation
+        self.assertEqual(len(slice_data['mfccs']), 20,
+                         f"MFCCs list should have 20 elements for '{instrument_name}'")
+        self.assertEqual(len(slice_data['chroma_stft']), 12,
+                         f"Chroma should have 12 elements for '{instrument_name}'")
+        self.assertEqual(len(slice_data['spectrogram']), len(slice_data['frequencies']),
+                         f"Spectrogram and Frequencies lists should have the same length for '{instrument_name}'")
+
     def test_analyze_all_e2e(self):
         """
         Tests the /api/analyze_harmonic endpoint of the containerized
@@ -386,6 +423,59 @@ class TestHarmonicServiceE2EPodman(unittest.TestCase):
                     self._assert_stems_analysis_results_valid(analysis_data)
                 else:
                     print(f"Instrument: {instrument} -> PASSED (Received None, expected behavior for silent/invalid stems)")
+
+            # --- Validate NDJSON Streaming Endpoints ---
+            print("\n--- Starting NDJSON Stream Validation ---")
+            for instrument, analysis_data in stem_analyses_data.items():
+                print(f"\n--- [{instrument.upper()}] ---")
+                if not analysis_data:
+                    print(f"Skipping stream validation for '{instrument}' as it had no static analysis data")
+                    continue
+
+                # Calculate expected number of frames
+                sr, hop_length = 22050, 512
+                duration = analysis_data.get("duration", 0)
+                expected_frames = math.floor((duration * sr) / hop_length) + 1
+                print(f"Audio duration: {duration:.2f}s. Expected approx. {expected_frames} time slices.")
+
+                # Construct the streaming URL
+                container_stem_path = stem_paths_payload[instrument]
+                encoded_stem_path = quote(container_stem_path)
+                stream_url = f"{SERVICE_URL}/api/harmonic/stream/{job_id}_{instrument}.ndjson?stem_path={encoded_stem_path}"
+                print(f"Requesting stream from: {stream_url}")
+
+                # Fetch and validate the stream
+                try:
+                    stream_response = requests.get(stream_url, timeout=120,
+                                                   stream=True)
+                    print(f"Received response with status code: {stream_response.status_code}")
+                    self.assertEqual(stream_response.status_code, 200)
+
+                    lines = stream_response.text.strip().split('\n')
+                    actual_frames = len(lines)
+                    print(f"Received {actual_frames} time slices.")
+
+                    # Assert frame count is within a reasonable tolerance
+                    self.assertAlmostEqual(
+                        actual_frames, expected_frames, delta=2,
+                        msg=f"For '{instrument}', expected ~{expected_frames} frames, but got {actual_frames}"
+                    )
+
+                    # Validate the structure of a few slices
+                    print("Validating structure of first, middle and last time slices...")
+                    self._validate_slice_structure(json.loads(lines[0]),
+                                                   instrument)
+                    self._validate_slice_structure(
+                        json.loads(lines[actual_frames // 2]),
+                        instrument
+                    )
+                    self._validate_slice_structure(json.loads(lines[-1]),
+                                                   instrument)
+                    print(f"Stream validation for '{instrument}' PASSED!")
+
+                except requests.exceptions.RequestException as e:
+                    self.fail(f"Request for '{instrument}' stream failed: {e}")
+
         finally:
             # Clean up the temporary track and results files
             print("Cleaning up temporary files...")
