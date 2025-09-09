@@ -41,12 +41,12 @@ export class VolumeTracker {
     /**
      * Processes and normalizes the raw overall RMS data from the backend.
      * RMS data is nested within harmonic_analysis.full_track_analysis.rms_overall as an array [time, value]
-     * @param {object} harmonicAnalysisData - The harmonic_analysis object
+     * @param {object} fullTrackAnalysisData - The harmonic_analysis.full_track_analysis object
      * from the API
      */
-    setData(harmonicAnalysisData) {
+    setData(fullTrackAnalysisData) {
         // Drill down to get the rms_overall object
-        const overallRmsData = harmonicAnalysisData?.full_track_analysis.rms_overall;
+        const overallRmsData = fullTrackAnalysisData?.rms_overall;
 
         if (!overallRmsData || !overallRmsData.values || overallRmsData.values.length === 0) {
             this.normalizedData = null;

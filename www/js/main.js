@@ -4,7 +4,7 @@ import { initPlayer } from './player.js';
 import { setupAudioPlayer } from './player/audio-player.js';
 import { LyricTracker } from './player/lyric-tracker.js';
 import { HarmonicVisualizer } from './player/harmonic-visualizer.js';
-import { SpectrogramAccessor } from './player/SpectrogramAccessor.js';
+import { TimeSeriesAccessor } from './player/TimeSeriesAccessor.js';
 import { VolumeTracker } from './player/volume-tracker.js';
 import { DrumTracker } from './player/drum-tracker.js';
 import { init as appInit } from './app.js';
@@ -18,7 +18,7 @@ const playerDependencies = {
     setupAudioPlayer,
     LyricTracker,
     HarmonicVisualizer,
-    SpectrogramAccessor,
+    TimeSeriesAccessor,
     VolumeTracker,
     DrumTracker,
 };

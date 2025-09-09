@@ -1,4 +1,5 @@
-import { SpectrogramAccessor } from './player/SpectrogramAccessor.js'
+import { TimeSeriesAccessor } from './player/TimeSeriesAccessor.js'
+import { calculateTotalFrames } from './utils.js';
 
 /**
  * Handles the form submission.
@@ -14,8 +15,10 @@ export async function submitJob(formData, accessCode) {
 
     if (!response.ok) {
         // Handle cases where error response is not JSON
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({
+            error: `HTTP error! Status: ${response.status}`
+        }));
+        throw new Error(errorData.error);
     }
 
     return response.json();
@@ -23,8 +26,7 @@ export async function submitJob(formData, accessCode) {
 
 /**
  * Polls the results endpoint until the job is finished or fails,
- * and upon completion, fetches the final harmonic data from its URL,
- * and processes the large JSON payload safely.
+ * and upon completion prepares the final data structure.
  * Provides updates on the current processing stage.
  * @param {string} job_id - The ID of the job to poll, returned by back-end after initial job submission.
  * @param {function} onProgress - A callback function for progress updates.
@@ -53,74 +55,93 @@ export function pollJobStatus(job_id, onProgress) {
 
                 if (data.status === 'finished') {
                     clearInterval(interval);
+                    console.log("Job finished. Fetching and preparing all data...")
 
-                    // Check for the harmonic analysis URL.
-                    const harmonicUrl = data.result?.harmonic_analysis?.results_url;
-                    if (harmonicUrl) {
-                        onProgress({
-                            status: 'finished',
-                            progress_stage: 'Fetching and processing results...'
-                        });
+                    const finalResult = await prepareFinalData(data.result);
+                    resolve({ ...data, result: finalResult }); // Resolve with enhanced result
 
-                        // Fetch the large JSON as TEXT
-                        const harmonicResponse = await fetch(`/${harmonicUrl}`);
-                        const jsonText = await harmonicResponse.text();
-
-                        // Safe Parsing Logic
-                        const processedData = processLargeHarmonicJSON(jsonText);
-                        data.result.harmonic_analysis = processedData;
-
-                        resolve(data);
-                    } else {
-                        // If there is no URL, resolve the data as-is.
-                        resolve(data);
-                    }
                 } else if (data.status === 'failed') {
                     clearInterval(interval);
                     reject(new Error(data.message || 'The job failed.'));
                 }
             } catch (error) {
                 clearInterval(interval);
-                reject(error);
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                reject(new Error(`Polling failed: ${errorMessage}`));
             }
         }, 5000); // Poll every 5 seconds (adjust as needed)
     });
 }
 
-/**
- * Safely processes a large harmonic analysis JSON string by replacing huge
- * spectrogram arrays with SpectrogramAccessor instances.
- * @param {string} jsonText - The raw JSON string.
- * @returns {object} The parsed data object with accessors.
+/** Fetches static and streaming harmonic data and structures is for the
+ * application.
+ * @param {object} initialResult - The result object from the polling method.
+ * @returns {Proimise<object>} The result object with harmonic data fully
+ * resolved.
  */
-function processLargeHarmonicJSON(jsonText) {
-    // This regex finds all "spectrogram":[[...]] entries.
-    // It is non-greedy and handles nested brackets.
-    const regex = /"spectrogram":\s*(\[\[.*?\]\])/g;
+async function prepareFinalData(initialResult) {
+    // Fetch the static harmonic analysis file
+    const harmonicInfo = initialResult.harmonic_analysis;
+    if (!harmonicInfo || !harmonicInfo.static_results_url) {
+        console.warn("No static harmonic results URL found.");
+        return initialResult; // Return early if no harmonic data
+    }
 
-    let accessors = {};
+    const staticResponse = await fetch(`${harmonicInfo.static_results_url}`);
+    if (!staticResponse.ok) {
+        throw new Error("Failed to fetch static harmonic data.");
+    }
+    const staticData = await staticResponse.json();
 
-    // Replace the spectrogram data with a placeholder and create an accessor
-    // for each.
-    const sanitizedJsonText = jsonText.replace(regex, (match, spectrogramString, offset) => {
-        // Find the instrument key that this spectrogram belongs to
-        const lastInstrumentIdx = jsonText.lastIndexOf('"stem_analyses":', offset);
-        const nextInstrumentIdx = jsonText.indexOf('"', lastInstrumentIdx + 30);
-        const instrumentKey = jsonText.substring(lastInstrumentIdx, nextInstrumentIdx).match(/"([^"]+)":\s*\{$/)[1];
+    // Combine static and streaming data into the final structure
+    const finalHarmonicData = {
+        full_track_analysis: staticData.full_track_analysis,
+        stem_analyses: {},
+    };
+    const initialFetchPromises = [];
 
-        accessors[instrumentKey] = new SpectrogramAccessor(spectrogramString);
-        return `"spectrogram": null`; // Replace with null
-    });
+    // Use the duration from the full track analysis as the canonical duration
+    // for all stems.
+    const trackDuration = staticData.full_track_analysis?.duration;
+    if (typeof trackDuration !== 'number') {
+        throw new Error("Full track analysis did not provide a valid duration.");
+    }
+    const totalFrames = calculateTotalFrames(trackDuration);
 
-    const data = JSON.parse(sanitizedJsonText);
+    if (staticData.stem_analyses) {
+        for (const instrument in staticData.stem_analyses) {
+            const stemStaticData = staticData.stem_analyses[instrument];
+            if (stemStaticData && harmonicInfo.streaming_urls?.[instrument]) {
+                const streamUrl = `/${harmonicInfo.streaming_urls[instrument]}`;
+                const accessor = new TimeSeriesAccessor(streamUrl, totalFrames)
 
-    // Re-attach the accessors to the parsed object
-    for (const instrument in accessors) {
-        if (data.stem_analyses[instrument]) {
-            data.stem_analyses[instrument].spectral_features.spectrogram = accessors[instrument];
+                finalHarmonicData.stem_analyses[instrument] = {
+                    // Static data (tempo, beats, onsets) comes from the main JSON
+                    temporal_features: stemStaticData,
+                    // The raw NDJSON string is added for the visualizer to use
+                    stream_accessor: accessor
+                };
+
+                // IMPORTANT: Kick off the fetch for the first chunk and add its promise to the array
+                initialFetchPromises.push(accessor.ensureDataForTime(0));
+            }
         }
     }
-    return data;
+
+    // Process drum analysis data right away by passing the raw array into the
+    // TimeSeriesAccessor
+    if (initialResult.drum_analysis?.hits && Array.isArray(initialResult.drum_analysis.hits)) {
+        const hits = initialResult.drum_analysis.hits;
+        // Wrap the drum hits array in the TimeSeriesAccessor
+        initialResult.drum_analysis.hits_accessor = new TimeSeriesAccessor(hits, hits.length);
+    }
+
+    console.log(`Waiting for initial data chunks for ${initialFetchPromises.length} instruments...`);
+    await Promise.all(initialFetchPromises);
+    console.log("Initial data chunks loaded.");
+
+    initialResult.harmonic_analysis = finalHarmonicData;
+    return initialResult;
 }
 
 /**
@@ -129,13 +150,17 @@ function processLargeHarmonicJSON(jsonText) {
  * @returns {Promise<void>}
  */
 export async function deleteAudioFile(filename) {
-    // We don't need to do anything with the response unless an error occurs.
-    const response = await fetch(`/api/cleanup/${filename}`, {
-        method: 'DELETE',
-    });
+    try {
+        // We don't need to do anything with the response unless an error occurs.
+        const response = await fetch(`/api/cleanup/${filename}`, {
+            method: 'DELETE',
+        });
 
-    if (!response.ok) {
-        // Log an error but don't block the user from navigating away.
-        console.error(`Failed to delete audio file ${filename} on the server.`);
+        if (!response.ok) {
+            // Log an error but don't block the user from navigating away.
+            console.error(`Failed to delete audio file ${filename} on the server.`);
+        }
+    } catch (error) {
+        console.error(`Error during deletion of audio file ${filename}:`, error)
     }
 }

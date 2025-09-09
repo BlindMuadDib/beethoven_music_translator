@@ -11,7 +11,7 @@ export class DrumTracker {
      * @param {Array} drumAnalysis - The drum_analysis data from the API.
      */
     constructor(canvas, drumAnalysis) {
-        if (!canvas || !(canvas instanceof HTMLCanvasElement)) {
+        if (!canvas) {
             throw new Error("A valid canvas element must be provided.");
         }
         this.canvas = canvas;
@@ -19,9 +19,12 @@ export class DrumTracker {
         // Assume tempo is part of the analysis data. Default to
         // 120 if not present.
         this.tempo = drumAnalysis?.tempo || 120;
-        this.drumHits = drumAnalysis?.hits || [];
-        this.lastTime = -1;
 
+        this.hitsAccessor = drumAnalysis?.hits_accessor;
+
+        console.log(`[DrumTracker] Initialized with ${this.hitsAccessor ? this.hitsAccessor.totalElements : 0} drum hits.`);
+
+        this.lastTime = -1;
         // Constants for visualization
         this.config = {
             yAxisMap: {
@@ -52,8 +55,6 @@ export class DrumTracker {
         this.hoveredHit = null;
         this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
         this.canvas.addEventListener('mouseout', this.handleMouseOut.bind(this));
-
-        console.log('[DrumTracker] Initialized with', this.drumHits.length, 'drum hits.');
 
         // Use a ResizeObserver to handle canvas resizing automatically
         const resizeObserver = new ResizeObserver(() => this.resizeCanvas());
@@ -99,44 +100,48 @@ export class DrumTracker {
         this.drawTempoLines(currentTime, width, height);
         this.drawNowLine(width, height);
 
-        // 2. Filter for currently active drum hits
-        const visibleHits = this.drumHits.filter(hit =>
-            currentTime >= hit.onset_time && currentTime < (hit.onset_time + hit.duration)
-        );
+        if (!this.hitsAccessor) return;
 
-        // 3. Draw the shapes
-        visibleHits.forEach(hit => {
-            const xPos = width * this.config.staticXPosition;
-            const yPos = this.getYPosition(hit) * height;
-            const color = this.getColor(hit);
-            const size = this.getSize(hit, currentTime);
-            const shape = this.getShape(hit.drum_category, hit.drum_type);
+        // Iterate through visible hits using the accessor
+        // Find the starting index and look ahead a bit.
+        const startIndex = this.hitsAccessor._findClosestIndexBinary(currentTime - 2.0); // Look back about 2 seconds
+        for (let i = startIndex; i < this.hitsAccessor.totalElements; i++) {
+            const hit = this.hitsAccessor.getElementAtIndex(i);
+            if (!hit || hit.onset_time > currentTime + 2.0) break;
 
-            if (size > 1) {
-                // 1. Draw the main colored shape.
-                // To achieve an "oil and water" effect where colors overlap
-                // but don't mix, we draw each shape with partial
-                // transparency.
-                this.ctx.globalAlpha = 0.85;
-                this.drawShape(xPos, yPos, size, shape, color);
+            // Only draw if the hit is currently active\
+            const timeSinceOnset = currentTime - hit.onset_time;
+            if (timeSinceOnset >= 0 && timeSinceOnset < hit.duration) {
+                const xPos = width * this.config.staticXPosition;
+                const yPos = this.getYPosition(hit) * height;
+                const color = this.getColor(hit);
+                const size = this.getSize(hit, currentTime);
+                const shape = this.getShape(hit.drum_category, hit.drum_type);
 
-                // Create a decaying flash for the moment the drum
-                // is struck
-                const flashDuration = 0.15;
-                const timeSinceOnset = currentTime - hit.onset_time;
+                if (size > 1) {
+                    // 1. Draw the main colored shape.
+                    // To achieve an "oil and water" effect where colors overlap
+                    // but don't mix, we draw each shape with partial
+                    // transparency.
+                    this.ctx.globalAlpha = 0.85;
+                    this.drawShape(xPos, yPos, size, shape, color);
 
-                if (timeSinceOnset >= 0 && timeSinceOnset < flashDuration) {
-                    // Calculate brightness (alpha) based on how long
-                    // ago the hit was. it starts at 1.0 (full bright)
-                    // and fades to 0.
-                    const flashAlpha = 1.0 - (timeSinceOnset / flashDuration);
+                    // Create a decaying flash for the moment the drum
+                    // is struck
+                    const flashDuration = 0.15;
+                    if (timeSinceOnset < flashDuration) {
+                        // Calculate brightness (alpha) based on how long
+                        // ago the hit was. it starts at 1.0 (full bright)
+                        // and fades to 0.
+                        const flashAlpha = 1.0 - (timeSinceOnset / flashDuration);
 
-                    // Apply the calculated alpha and draw the flash
-                    this.ctx.globalAlpha = flashAlpha;
-                    this.drawShape(xPos, yPos, size * .2, shape, '#FFFFFF');
+                        // Apply the calculated alpha and draw the flash
+                        this.ctx.globalAlpha = flashAlpha;
+                        this.drawShape(xPos, yPos, size * .2, shape, '#FFFFFF');
+                    }
                 }
             }
-        });
+        }
 
         // 4. Reset alpha for tooltips and legend, and draw UI elements
         this.ctx.globalAlpha = 1.0;
@@ -293,8 +298,9 @@ export class DrumTracker {
      * @param {number} size - The size (radius) of the shape.
      * @param {number} shape - The name of the shape to draw.
      * @param {number} color - The fill color for the shape.
+     * @param {number} [lineWidth=2] - The width of the shape's outline
      */
-    drawShape(x, y, size, shape, color) {
+    drawShape(x, y, size, shape, color, lineWidth = 2) {
         this.ctx.save();
 
         // Glow effect
@@ -303,7 +309,7 @@ export class DrumTracker {
 
         this.ctx.fillStyle = color;
         this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-        this.ctx.lineWidth = 2;
+        this.ctx.lineWidth = lineWidth;
         this.ctx.beginPath();
 
         const radius = size / 2;
@@ -376,7 +382,7 @@ export class DrumTracker {
 
         // Draw background box for the legend
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
         this.ctx.roundRect(legendX, legendY, legendWidth, legendHeight, 5);
@@ -398,7 +404,7 @@ export class DrumTracker {
             const xPos = legendX + 20;
 
             const displayName = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-            this.drawShape(xPos, yPos, 15, shape, 'hsl(0, 0%, 80)'); // Draw a neutral colored shape
+            this.drawShape(xPos, yPos, 15, shape, 'hsl(0, 0%, 80)', 1); // Draw a neutral colored shape
 
             // Reset fillStyle for the text after drawing the shape
             this.ctx.fillStyle = '#FFFFFF';
@@ -462,25 +468,30 @@ export class DrumTracker {
         const mouseY = e.clientY - rect.top;
 
         const currentTime = this.lastTime;
-        const visibleHits = this.drumHits.filter(hit => {
-            const timeSinceOnset = currentTime - hit.onset_time;
-            return timeSinceOnset >= 0 && timeSinceOnset < hit.duration;
-        });
+
+        if (!this.hitsAccessor) return;
 
         // Find the topmost hit under the cursor
         this.hoveredHit = null;
-        for (const hit of visibleHits.reverse()) { // Reverse to check topmost first
-            const size = this.getSize(hit, currentTime);
-            const x = this.config.staticXPosition * this.canvas.width;
-            const y = this.getYPosition(hit) * this.canvas.height;
+        const startIndex = this.hitsAccessor._findClosestIndexBinary(this.lastTime - 2.0);
+        for (let i = startIndex; i < this.hitsAccessor.totalElements; i++) {
+            const hit = this.hitsAccessor.getElementAtIndex(i);
+            if (!hit || hit.onset_time > currentTime + 2.0) break;
 
-            // Simple bounding box collision detection
-            if (mouseX >= x - size/2 && mouseX <= x + size/2 &&
-                mouseY >= y - size/2 && mouseY <= y + size/2) {
-                this.hoveredHit = hit;
-                this.hoveredHit.lastX = x;
-                this.hoveredHit.lastY = y;
-                break;
+            const timeSinceOnset = this.lastTime - hit.onset_time;
+            if (timeSinceOnset >= 0 && timeSinceOnset < hit.duration) {
+                const size = this.getSize(hit, currentTime);
+                const x = this.config.staticXPosition * this.canvas.width;
+                const y = this.getYPosition(hit) * this.canvas.height;
+
+                // Simple bounding box collision detection
+                if (mouseX >= x - size/2 && mouseX <= x + size/2 &&
+                    mouseY >= y - size/2 && mouseY <= y + size/2) {
+                    this.hoveredHit = hit;
+                    this.hoveredHit.lastX = x;
+                    this.hoveredHit.lastY = y;
+                    return;
+                }
             }
         }
 

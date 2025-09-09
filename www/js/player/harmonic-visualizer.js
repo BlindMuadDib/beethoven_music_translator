@@ -3,6 +3,8 @@
 // analysis data onto a canvas. It replaces the functionality of the
 // old F0Tracker.
 
+import { TimeSeriesAccessor } from "./TimeSeriesAccessor.js";
+
 /**
  * A helper function to find the value for a given time via linear
  * interpolation.
@@ -40,7 +42,7 @@ function getInterpolatedValue(data, currentTime) {
 function getClosestDataIndex(times, currentTime) {
     if (!times || times.length === 0) return 0;
     let index = times.findIndex(t => t > currentTime);
-    return Math.max(0, index - 1);
+    return Math.max(0, index === -1 ? times.length - 1 : index - 1);
 }
 
 /**
@@ -56,20 +58,35 @@ export class HarmonicVisualizer {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.data = harmonicData;
+        this.axisContainer = document.getElementById('frequency-axis');
+
+        // Create accessors for each instrument's stream
+        this.streamAccessors = {};
+        if (this.data && this.data.stem_analyses) {
+            for (const instrumentName in this.data.stem_analyses) {
+                const stemData = this.data.stem_analyses[instrumentName];
+                if (stemData && stemData.stream_accessor) {
+                    this.streamAccessors[instrumentName] = stemData.stream_accessor;
+                }
+            }
+        }
+
+        // Pre-fetch the first chunk of data for immediate playback
+        Object.values(this.streamAccessors).forEach(accessor => accessor.ensureDataForTime(0));
 
         // Configuration and state
         this.config = {
             // Colors are generated dynamically based on spectral features
             baseSaturation: 80, // %
             baseLightness: 50, // %
-            minRadius: 10,
-            maxRadiusRatio: 0.45, // Max radius is 45% of column width
+            minBlobWidth: 20, // A bit larger so it's always visible
+            maxBlobWidthRatio: 0.49, // Max width is 45% of column width
             minPadding: 10, // px, padding around the drawing area
-            onsetItemDecay: 200, // ms for onset flash to fade
-            beatItemDecay: 300, // ms for beat square to fade
+            onsetItemDecay: 100, // ms for onset flash to fade
+            beatItemDecay: 100, // ms for beat square to fade
             f0BallSizeRatio: 0.51, // F0 ball is 51% of the blob's max radius
             f0BallColor: 'gray',
-            columnGap: 20, // px between columns
+            columnGap: 2, // px between columns
             // For interpolation and mapping
             spectralRolloffMax: 10000, // Hz, an educated guess for normalization
             spectralBandwidthMax: 5000, // Hz
@@ -81,13 +98,14 @@ export class HarmonicVisualizer {
         //Dynamic state to track
         this.currentTime = 0;
         this.minimizedInstruments = [];
-        this.instrumentOrder = Object.keys(this.data.stem_analyses);
+        this.instrumentOrder = this.data.stem_analyses ? Object.keys(this.data.stem_analyses) : [];
 
-        // Keep track of recent onsets and beats for visualization
-        this.onsets = {};
-        this.beats = {};
+        // Add a ResizeObserver to automatically handle canvas sizing and redraws.
+        const resizeObserver = new ResizeObserver(() => this.resize());
+        resizeObserver.observe(this.canvas);
 
         // Initial drawing to set up the canvas
+        this.drawFrequencyAxis();
         this.resize();
         this.update(0);
     }
@@ -100,6 +118,9 @@ export class HarmonicVisualizer {
             this.canvas.width = this.canvas.offsetWidth;
             this.canvas.height = this.canvas.offsetHeight;
         }
+        // Redraw with current time whenever the size changes
+        this.drawFrequencyAxis();
+        this.update(this.currentTime);
     }
 
     /**
@@ -107,7 +128,10 @@ export class HarmonicVisualizer {
      * @param {number} currentTime - The current time in seconds.
      */
     update(currentTime) {
-        this.resize();
+        if (this.canvas.width === 0 || this.canvas.height === 0) {
+            return; // Don't draw if the canvas isn't visible
+        }
+
         this.currentTime = currentTime;
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -142,36 +166,34 @@ export class HarmonicVisualizer {
         const currentTime = this.currentTime;
         const analysisTimeMs = Math.floor(currentTime * 1000);
 
+        // Retrieve the data
+        const accessor = this.streamAccessors[instrumentName];
+        if (!accessor) return; // Don't draw if there's no stream data
+
+        const timeSlice = accessor.getElementAtTime(this.currentTime);
+        if (!timeSlice) {
+            // Data for this time isn't loaded yet. Could draw a loading indicator here.
+            return;
+        }
+
+        // Extract features from the parsed time slice
+        const {
+            f0_data: f0,
+            rms,
+            spectral_centroid: spectralCentroid,
+            spectral_bandwidth: spectralBandwidth,
+            spectral_rolloff: spectralRolloff,
+            spectral_flatness: spectralFlatness,
+            frequencies,
+            spectrogram: spectrogramSlice,
+            chroma_stft: chromaStft,
+            mfccs,
+        } = timeSlice;
+
         // Draw moving tempo lines first
         this.drawTempoLines(x, width, stemData.temporal_features.tempo);
 
-        // --- Data Retrieval & Interpolation ---
-        const f0 = getInterpolatedValue(
-            stemData.f0_data.f0_values.map((v, i) => [stemData.f0_data.times[i], v]),
-            currentTime
-        );
-
-        // Use the common spectral times for all time-aligned features
-        const specTimes = stemData.spectral_features.times;
-        const specIndex = getClosestDataIndex(specTimes, currentTime);
-
-        const rms = stemData.spectral_features.rms[0]?.[specIndex] || 0;
-        const spectralCentroid = stemData.spectral_features.spectral_centroid?.[specIndex]?.[0] || 0;
-        const spectralBandwidth = stemData.spectral_features.spectral_bandwidth?.[specIndex]?.[0] || 0;
-        const spectralRolloff = stemData.spectral_features.spectral_rolloff?.[specIndex]?.[0] || 0;
-        const spectralFlatness = stemData.spectral_features.spectral_flatness?.[specIndex]?.[0] || 0;
-
-        // Use the accessor to get ONLY the current slice because spectrogram
-        // data is immense
-        const spectrogramAccessor = stemData.spectral_features.spectrogram;
-        const spectrogramSlice = spectrogramAccessor ? spectrogramAccessor.getSlice(specIndex) : [];
-
-        const frequencies = stemData.spectral_features.frequencies;
-        const chromaStft = stemData.timbral_features.chroma_stft[specIndex] || [];
-        const mfccs = stemData.timbral_features.mfccs[specIndex] || [];
-
         // --- Visualization Logic ---
-
         // Calculate the color (Hue, Saturation, Lightness)
         const hue = this.mapValueToHue(spectralRolloff, this.config.spectralRolloffMax);
         const saturation = this.mapValueToSaturation(spectralBandwidth, this.config.spectralBandwidthMax);
@@ -179,8 +201,8 @@ export class HarmonicVisualizer {
         const color = `hsla(${hue}, ${saturation}%, ${lightness}%, 0.8)`;
 
         // Calculate the size and position of the blob
-        const maxRadius = width * this.config.maxRadiusRatio;
-        const radius = this.mapValueToRadius(rms, maxRadius);
+        const maxBlobWidth = width * this.config.maxBlobWidthRatio;
+        const blobWidth = this.mapValueToBlobWidth(rms, maxBlobWidth);
         const centerX = x + width / 2;
         const centerY = this.canvas.height / 2;
 
@@ -188,7 +210,7 @@ export class HarmonicVisualizer {
         if (f0 && f0 > 0) {
             this.drawBlob(
                 centerX,
-                radius,
+                blobWidth,
                 color,
                 f0,
                 spectralCentroid,
@@ -202,7 +224,7 @@ export class HarmonicVisualizer {
             // Draw a simple circle when no F0 is detected
             this.drawBlobSimple(
                 centerX,
-                radius,
+                blobWidth,
                 color,
                 spectralCentroid,
                 spectralBandwidth,
@@ -214,7 +236,7 @@ export class HarmonicVisualizer {
         }
 
         // Draw the Chroma STFT halo
-        this.drawChromaHalo(centerX, centerY, radius, chromaStft);
+        this.drawChromaHoops(centerX, centerY, blobWidth, chromaStft);
 
         // Draw the temporal effects (onsets & beats)
         this.drawTemporalEffects(centerX, width, stemData, analysisTimeMs);
@@ -261,12 +283,12 @@ export class HarmonicVisualizer {
     /**
      * Maps an RMS value to a radius for the blob.
      * @param {number} rms - The Root Mean Square value (volume).
-     * @param {number} maxRadius - The maximum possible radius for this column.
-     * @returns {number} - The radius of the blob.
+     * @param {number} maxBlobWidth - The maximum possible width for this column.
+     * @returns {number} - The width of the blob's peak amplitude.
      */
-    mapValueToRadius(rms, maxRadius) {
+    mapValueToBlobWidth(rms, maxRadius) {
         const normalizedRms = Math.min(1, Math.max(0, rms / this.config.rmsMax));
-        return Math.max(this.config.minRadius, normalizedRms * maxRadius);
+        return Math.max(this.config.minBlobWidth, normalizedRms * maxRadius);
     }
 
     /**
@@ -341,7 +363,7 @@ export class HarmonicVisualizer {
      * @param {number} flatness - Spectral flatness value (0-1)
      */
     createDynamicPath(x, spectrogram, frequencies, radius, flatness) {
-        if (!spectrogram || spectrogram.length === 0) return;
+        if (!Array.isArray(spectrogram) || spectrogram.length === 0) return;
 
         const randomness = flatness * 50; // Randomness increases with flatness
         const maxAmplitude = Math.max(...spectrogram) || 1;
@@ -434,30 +456,30 @@ export class HarmonicVisualizer {
      * Draws a 12-segment ring around the blob for chroma STFT visualization.
      * @param {number} x - Center x-coordinate.
      * @param {number} y - Center y-coordinate.
-     * @param {number} radius - The radius of the blob (inner ring).
+     * @param {number} blobWidth - The width of the blob (inner ring).
      * @param {Array<number>} chromaStft - The 12-element chroma vector.
      */
-    drawChromaHalo(x, y, radius, chromaStft) {
+    drawChromaHoops(x, y, blobWidth, chromaStft) {
         if (!chromaStft || chromaStft.length !== 12) return;
 
-        const innerRadius = radius + 5;
-        const outerRadius = innerRadius + this.config.chromaRingWidth;
+        const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const hoopRadiusX = blobWidth * 0.8; // Ellipse width
+        const hoopRadiusY = 8; // Ellipse height (constant for 3D effect)
+        const verticalSpacing = 15; // Space between hoops
 
         for (let i = 0; i < 12; i++) {
             const chromaValue = chromaStft[i];
-            if (chromaValue > 0) {
-                const startAngle = (Math.PI * 2) / 12 * i - Math.PI / 2;
-                const endAngle = (Math.PI * 2) / 12 * (i + 1) - Math.PI / 2;
+            if (chromaValue < 0.1) continue; // Don't draw faint hoops
 
-                const opacity = Math.min(1, chromaValue * 2); // Amplify for visibility
-                this.ctx.fillStyle = `hsla(180, 100%, 80%, ${opacity})`; // A consistent color for all chromas
+            // Distribute hoops vertically around the center
+            const hoopY = y + (i - 5.5) * verticalSpacing;
+            const opacity = Math.min(1, chromaValue * 1.5);
 
-                this.ctx.beginPath();
-                this.ctx.arc(x, y, outerRadius, startAngle, endAngle);
-                this.ctx.arc(x, y, innerRadius, endAngle, startAngle, true);
-                this.ctx.closePath();
-                this.ctx.fill();
-            }
+            this.ctx.strokeStyle = `hsla(${i * 30}, 100%, 70%, ${opacity})`; // Give each note a unique color
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.ellipse(x, hoopY, hoopRadiusX, hoopRadiusY, 0, 0, 2 * Math.PI);
+            this.ctx.stroke();
         }
     }
 
@@ -470,7 +492,7 @@ export class HarmonicVisualizer {
      */
     drawF0Ball(x, y, radius) {
         this.ctx.beginPath();
-        this.ctx.arc(x, y, radius, 0, Math.Pi * 2);
+        this.ctx.arc(x, y, radius, 0, Math.PI * 2);
         this.ctx.fillStyle = this.config.f0BallColor;
         this.ctx.fill();
         this.ctx.closePath();
@@ -483,32 +505,29 @@ export class HarmonicVisualizer {
      * @param {number} analysisTimeMs - The current time in milliseconds.
      */
     drawTemporalEffects(x, width, stemData, analysisTimeMs) {
+        const onsets = stemData.temporal_features.onsets || [];
+        const beats = stemData.temporal_features.beats || [];
+
         // Handle Onsets
-        if (stemData.temporal_features.onsets) {
-            for (const onsetTime of stemData.temporal_features.onsets) {
-                const onsetMs = Math.round(onsetTime * 1000);
-                const timeDiff = analysisTimeMs - onsetMs;
-                if (timeDiff >= 0 && timeDiff <= this.config.onsetTimeDecay) {
-                    const opacity = 1 - (timeDiff / this.config.onsetItemDecay);
-                    this.ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
-                    this.ctx.fillRect(x - (width * 0.05), this.canvas.height / 2 - width / 2, width * 0.1, width);
-                }
+        onsets.forEach(onsetTime => {
+            const timeDiff = analysisTimeMs - (onsetTime * 1000);
+            if (timeDiff >= 0 && timeDiff <= this.config.onsetTimeDecay) {
+                const opacity = 1 - (timeDiff / this.config.onsetItemDecay);
+                this.ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+                this.ctx.fillRect(x - (width * 0.05), this.canvas.height / 2 - width / 2, width * 0.1, width);
             }
-        }
+        });
 
         // Handle Beats
-        if (stemData.temporal_features.beats) {
-            for (const beatTime of stemData.temporal_features.beats) {
-                const beatMs = Math.round(beatTime * 1000);
-                const timeDiff = analysisTimeMs - beatMs;
-                if (timeDiff >= 0 && timeDiff <= this.config.beatItemDecay) {
-                    const opacity = 1 - (timeDiff / this.config.beatItemDecay);
-                    this.ctx.fillStyle = `rgba(200, 200, 200, ${opacity})`;
-                    const squareSize = width * 0.2;
-                    this.ctx.fillRect(x - squareSize/2, this.canvas.height / 2 - squareSize/2, squareSize, squareSize);
-                }
+        beats.forEach(beatTime => {
+            const timeDiff = analysisTimeMs - (beatTime * 1000);
+            if (timeDiff >= 0 && timeDiff <= this.config.beatItemDecay) {
+                const opacity = 1 - (timeDiff / this.config.beatItemDecay);
+                this.ctx.fillStyle = `rgba(200, 200, 200, ${opacity})`;
+                const squareSize = width * 0.2;
+                this.ctx.fillRect(x - squareSize/2, this.canvas.height / 2 - squareSize/2, squareSize, squareSize);
             }
-        }
+        });
     }
 
     /**
@@ -535,5 +554,30 @@ export class HarmonicVisualizer {
             this.ctx.stroke();
         }
         this.ctx.restore();
+    }
+
+    drawFrequencyAxis() {
+        this.axisContainer.innerHTML = '';
+        const frequencies = [65.41, 130.81, 261.63, 523.25, 1046.50, 2093.00, 4186.01]; // C2 to C8
+        const labels = ['C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
+
+        // Use a dummy full frequency range for mapping, similar to what
+        // librosa provides
+        const freqBins = Array.from({length: 1025}, (_, i) => i * (22050 / 1024));
+
+        frequencies.forEach((freq, i) => {
+            const normalizedY = this.mapValueToNormalizedY(freq, freqBins);
+            const yPos = (1 - normalizedY) * 100; // a percentage from the top
+
+            const labelEl = document.createElement('div');
+            labelEl.textContent = labels[i];
+            labelEl.position = 'absolute';
+            labelEl.style.top = `${yPos}%`;
+            labelEl.style.right = '5px'; // Position inside the axis container
+            labelEl.style.transform = 'translateY(-50%)'; // Center verically
+            labelEl.style.color = '#ccc';
+            labelEl.style.fontSize = '12px';
+            this.axisContainer.appendChild(labelEl);
+        });
     }
 }

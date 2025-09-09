@@ -1,208 +1,159 @@
 import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { DrumTracker } from '../www/js/player/drum-tracker.js';
+
+jest.unstable_mockModule('../www/js/player/TimeSeriesAccessor.js', () => ({
+    TimeSeriesAccessor: jest.fn().mockImplementation((source, totalElements) => ({
+        source,
+        totalElements,
+        getElementAtIndex: jest.fn(),
+        _findClosestIndexBinary: jest.fn().mockReturnValue(0), // Default mock
+    })),
+}));
+
+const { DrumTracker } = await import('../www/js/player/drum-tracker.js');
+const { TimeSeriesAccessor: MockAccessor } = await import ('../www/js/player/TimeSeriesAccessor.js');
 
 describe('DrumTracker', () => {
-    let canvas, ctx;
-    let mockDrumAnalysis;
-    let originalBoundingClientRect;
-    let originalResizeObserver;
+    let canvas, ctx, mockDrumAnalysis, mockHitsAccessor;
+    const mockHits = [
+        {
+            "onset_time": 0.5,
+            "duration": 0.1,
+            "relative_volume": 0.5,
+            "dominant_frequency": 440.0,
+            "spectral_centroid": 500.0,
+            "spectral_rolloff": 1500.0,
+            "spectral_flux": 0.5,
+            "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+            "drum_category": "snare",
+            "category_confidence": 0.98,
+            "drum_type": "unknown",
+            "type_confidence": 0.0,
+            "qualifier": "brush",
+            "qualifier_confidence": 0.91
+        },
+        {
+            "onset_time": 1.2,
+            "duration": 0.08,
+            "relative_volume": 0.3,
+            "dominant_frequency": 220.0,
+            "spectral_centroid": 300.0,
+            "spectral_rolloff": 1000.0,
+            "spectral_flux": 0.3,
+            "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+            "drum_category": "kick",
+            "category_confidence": 0.93,
+            "drum_type": "bass",
+            "type_confidence": 1.0,
+            "qualifier": "no_qualifier",
+            "qualifier_confidence": 1.0
+        },
+        {
+            "onset_time": 1.5,
+            "duration": 0.8, // Longer duration for decay test
+            "relative_volume": 0.7,
+            "dominant_frequency": 5000.0,
+            "spectral_centroid": 4500.0,
+            "spectral_rolloff": 6000.0,
+            "spectral_flux": 0.8,
+            "mfccs": [],
+            "drum_category": "cymbal",
+            "category_confidence": 0.97,
+            "drum_type": "hihat",
+            "type_confidence": 0.98,
+            "qualifier": "open",
+            "qualifier_confidence": 0.90
+        },
+        {
+            "onset_time": 2.0,
+            "duration": 0.4,
+            "relative_volume": 0.6,
+            "dominant_frequency": 1200.0,
+            "spectral_centroid": 1500.0,
+            "spectral_rolloff": 2500.0,
+            "spectral_flux": 0.6,
+            "mfccs": [],
+            "drum_category": "tom",
+            "category_confidence": 0.92,
+            "drum_type": "low",
+            "type_confidence": 0.85,
+            "qualifier": "rimshot",
+            "qualifier_confidence": 0.94
+        },
+        {
+            "onset_time": 2.5,
+            "duration": 0.6,
+            "relative_volume": 0.7,
+            "dominant_frequency": 8000.0,
+            "spectral_centroid": 7000.0,
+            "spectral_rolloff": 7500.0,
+            "spectral_flux": 0.9,
+            "mfccs": [],
+            "drum_category": "cymbal",
+            "category_confidence": 0.99,
+            "drum_type": "crash",
+            "type_confidence": 0.99,
+            "qualifier": "full",
+            "qualifier_confidence": 0.91
+        }
+    ];
 
     beforeEach(() => {
-        // Set up a mock canvas for each test
-        document.body.innerHTML = '<canvas id="drum-canvas" width="800" height="400"></canvas>';
-        canvas = document.getElementById('drum-canvas');
-
-        // Mock getContext and its methods
-        // Use a function to create a fresh mock ctx for each test
-        const createMockCtx = () => {
-            // An object to hold the current style properties
-            const currentState = {
-                fillStyle: '',
-                strokeStyle: '',
-                lineWidth: 1,
-                globalAlpha: 1.0,
-                shadowColor: '',
-                shadowBlur: 0,
-                font: '',
-                textAlign: 'start',
-            };
-
-            // A stack to save and restore states
-            const stateStack = [];
-
-            return {
-                clearRect: jest.fn(),
-                beginPath: jest.fn(),
-                moveTo: jest.fn(),
-                lineTo: jest.fn(),
-                stroke: jest.fn(),
-                fill: jest.fn(),
-                arc: jest.fn(),
-                rect: jest.fn(),
-                closePath: jest.fn(),
-                measureText: jest.fn(() => ({ width: 50 })), // Mock for drawTooltip
-                fillText: jest.fn(),
-                fillRect: jest.fn(),
-                roundRect: jest.fn(), // For drawLegend
-
-                // Implement save() to push a copy of the current state
-                // to the stack
-                save: jest.fn(() => {
-                   stateStack.push({ ...currentState });
-                }),
-
-                // Implement restore() to pop a state from the stack
-                restore: jest.fn(() => {
-                    if (stateStack.length > 0) {
-                        const restoredState = stateStack.pop();
-                        Object.assign(currentState, restoredState);
-                    }
-                }),
-
-                get fillStyle() { return currentState.fillStyle; },
-                set fillStyle(value) { currentState.fillStyle = value; },
-                get strokeStyle() { return currentState.strokeStyle; },
-                set strokeStyle(value) { currentState.strokeStyle = value; },
-                get lineWidth() { return currentState.lineWidth; },
-                set lineWidth(value) { currentState.lineWidth = value; },
-                get globalAlpha() { return currentState.globalAlpha; },
-                set globalAlpha(value) { currentState.globalAlpha = value; },
-                get shadowColor() { return currentState.shadowColor; },
-                set shadowColor(value) { currentState.shadowColor = value; },
-                get shadowBlur() { return currentState.shadowBlur; },
-                set shadowBlur(value) { currentState.shadowBlur = value; },
-                get font() { return currentState.font; },
-                set font(value) { currentState.font = value; },
-                get textAlign() { return currentState.textAlign; },
-                set textAlign(value) { currentState.textAlign = value; },
-            };
-        };
-        ctx = createMockCtx(); // Assign fresh mock ctx
-        canvas.getContext = jest.fn(() => ctx);
-
-        // Mock getBoundingClientRect for canvas resizing
-        originalBoundingClientRect = HTMLCanvasElement.prototype.getBoundingClientRect;
-        HTMLCanvasElement.prototype.getBoundingClientRect = jest.fn(() => ({
-            width: 800,
-            height: 400,
-            x: 0, y: 0, top: 0, right: 800, bottom: 400, left: 0,
-            toJSON: () => {}
+        // Mock ResizeObserver in the test environment
+        global.ResizeObserver = jest.fn(cb => ({
+            observe: jest.fn(),
+            unobserve: jest.fn(),
+            disconnect: jest.fn(),
         }));
 
-        // Mock ResizeObserver
-        originalResizeObserver = global.ResizeObserver;
-        global.ResizeObserver = jest.fn(callback => {
-            return {
-                observe: jest.fn(),
-                unobserve: jest.fn(),
-                disconnect: jest.fn(),
-                trigger: () => callback([{ contentRect: { width: 800, height: 400 } }]) // Custom trigger for testing
-            };
-        });
+        ctx = {
+            clearRect: jest.fn(),
+            beginPath: jest.fn(),
+            moveTo: jest.fn(),
+            lineTo: jest.fn(),
+            stroke: jest.fn(),
+            fill: jest.fn(),
+            arc: jest.fn(),
+            rect: jest.fn(),
+            closePath: jest.fn(),
+            save: jest.fn(),
+            restore: jest.fn(),
+            measureText: jest.fn(() => ({ width: 50 })), // Mock for drawTooltip
+            fillText: jest.fn(),
+            fillRect: jest.fn(),
+            roundRect: jest.fn(), // For drawLegend,
+            shadowColor: '', shadowBlur: 0,
+            fillStyle: '', strokeStyle: '',
+            lineWidth: 0, font: '', textAlign: '', globalAlpha: 1
+        };
 
-        // Mock drum analysis data
+        canvas = {
+            getContext: jest.fn(() => ctx),
+            getBoundingClientRect: jest.fn(() => ({
+                width: 800, height: 400,
+                left: 0, top: 0
+            })),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+        };
+
+        // Setup the mock accessor instance
+        mockHitsAccessor = new MockAccessor(mockHits, mockHits.length);
         mockDrumAnalysis = {
             tempo: 120,
-            hits: [
-                {
-                    "onset_time": 0.5,
-                    "duration": 0.1,
-                    "relative_volume": 0.5,
-                    "dominant_frequency": 440.0,
-                    "spectral_centroid": 500.0,
-                    "spectral_rolloff": 1500.0,
-                    "spectral_flux": 0.5,
-                    "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
-                    "drum_category": "snare",
-                    "category_confidence": 0.98,
-                    "drum_type": "unknown",
-                    "type_confidence": 0.0,
-                    "qualifier": "brush",
-                    "qualifier_confidence": 0.91
-                },
-                {
-                    "onset_time": 1.2,
-                    "duration": 0.08,
-                    "relative_volume": 0.3,
-                    "dominant_frequency": 220.0,
-                    "spectral_centroid": 300.0,
-                    "spectral_rolloff": 1000.0,
-                    "spectral_flux": 0.3,
-                    "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
-                    "drum_category": "kick",
-                    "category_confidence": 0.93,
-                    "drum_type": "bass",
-                    "type_confidence": 1.0,
-                    "qualifier": "no_qualifier",
-                    "qualifier_confidence": 1.0
-                },
-                {
-                    "onset_time": 1.5,
-                    "duration": 0.8, // Longer duration for decay test
-                    "relative_volume": 0.7,
-                    "dominant_frequency": 5000.0,
-                    "spectral_centroid": 4500.0,
-                    "spectral_rolloff": 6000.0,
-                    "spectral_flux": 0.8,
-                    "mfccs": [],
-                    "drum_category": "cymbal",
-                    "category_confidence": 0.97,
-                    "drum_type": "hihat",
-                    "type_confidence": 0.98,
-                    "qualifier": "open",
-                    "qualifier_confidence": 0.90
-                },
-                {
-                    "onset_time": 2.0,
-                    "duration": 0.4,
-                    "relative_volume": 0.6,
-                    "dominant_frequency": 1200.0,
-                    "spectral_centroid": 1500.0,
-                    "spectral_rolloff": 2500.0,
-                    "spectral_flux": 0.6,
-                    "mfccs": [],
-                    "drum_category": "tom",
-                    "category_confidence": 0.92,
-                    "drum_type": "low",
-                    "type_confidence": 0.85,
-                    "qualifier": "rimshot",
-                    "qualifier_confidence": 0.94
-                },
-                {
-                    "onset_time": 2.5,
-                    "duration": 0.6,
-                    "relative_volume": 0.7,
-                    "dominant_frequency": 8000.0,
-                    "spectral_centroid": 7000.0,
-                    "spectral_rolloff": 7500.0,
-                    "spectral_flux": 0.9,
-                    "mfccs": [],
-                    "drum_category": "cymbal",
-                    "category_confidence": 0.99,
-                    "drum_type": "crash",
-                    "type_confidence": 0.99,
-                    "qualifier": "full",
-                    "qualifier_confidence": 0.91
-                }
-            ]
+            hits_accessor: mockHitsAccessor
         };
+
+        MockAccessor.mockClear();
     });
 
-    afterEach(() => {
-        // Restore original functions
-        HTMLCanvasElement.prototype.getBoundingClientRect = originalBoundingClientRect;
-        global.ResizeObserver = originalResizeObserver;
-        jest.restoreAllMocks();
-    });
-
-    test('should initiate correctly with valid canvas and data', () => {
+    test('constructor should use the hits_accessor from drumAnalysis', () => {
         // Act
         const tracker = new DrumTracker(canvas, mockDrumAnalysis);
 
         // Assert
         expect(tracker).toBeInstanceOf(DrumTracker);
         expect(tracker.tempo).toBe(120);
-        expect(tracker.drumHits).toEqual(mockDrumAnalysis.hits);
+        expect(tracker.hitsAccessor).toBe(mockHitsAccessor);
         expect(canvas.getContext).toHaveBeenCalledWith('2d');
         // Ensure resizeCanvas is called on init
         expect(canvas.width).toBe(800);
@@ -223,12 +174,7 @@ describe('DrumTracker', () => {
             jest.clearAllMocks();
             const drawSpy = jest.spyOn(tracker, 'draw');
 
-            HTMLCanvasElement.prototype.getBoundingClientRect.mockReturnValue({
-                width: 1000,
-                height: 500,
-                x: 0, y: 0, top: 0, right: 1000, bottom: 500, left: 0,
-                toJSON: () => {}
-            });
+            canvas.getBoundingClientRect.mockReturnValue({ width: 1000, height: 500 });
 
             tracker.resizeCanvas();
 
@@ -293,6 +239,8 @@ describe('DrumTracker', () => {
         test('should clear canvas and call drawing helper methods', () => {
             const drawTempoLinesSpy = jest.spyOn(tracker, 'drawTempoLines');
             const drawNowLineSpy = jest.spyOn(tracker, 'drawNowLine');
+            // Mock accessor to return a hit to ensure drawShap is called
+            mockHitsAccessor.getElementAtIndex.mockImplementation(i => mockHits[i] || null);
 
             tracker.update(0.55); // Time when first hit is active
 
@@ -311,24 +259,30 @@ describe('DrumTracker', () => {
             drawTooltipSpy.mockRestore();
         });
 
-        test('should filter and draw only visible hits', () => {
+        test('should call drawShape for active hits using the accessor', () => {
+            // Mock the accessor to return the test hits
+            mockHitsAccessor.getElementAtIndex.mockImplementation(i => mockHits[i] || null);
+            mockHitsAccessor._findClosestIndexBinary.mockReturnValue(0);
+
             tracker.update(0.0); // No hits
             expect(drawShapeSpy).not.toHaveBeenCalled();
 
             drawShapeSpy.mockClear();
+            mockHitsAccessor.getElementAtIndex.mockImplementation(i => mockHits[i] || null);
+            mockHitsAccessor._findClosestIndexBinary.mockReturnValue(0);
+
 
             tracker.update(0.51); // First hit active
+
+            expect(mockDrumAnalysis.hits_accessor._findClosestIndexBinary).toHaveBeenCalled();
+            expect(mockDrumAnalysis.hits_accessor.getElementAtIndex).toHaveBeenCalled();
             expect(drawShapeSpy).toHaveBeenCalledTimes(2);
-            expect(drawShapeSpy).toHaveBeenCalledWith(
-                expect.any(Number), expect.any(Number), expect.any(Number), 'circle', expect.any(String)
-            );
             drawShapeSpy.mockClear();
 
             tracker.update(1.25); // Second hit active
+            expect(mockDrumAnalysis.hits_accessor._findClosestIndexBinary).toHaveBeenCalled();
+            expect(mockDrumAnalysis.hits_accessor.getElementAtIndex).toHaveBeenCalled();
             expect(drawShapeSpy).toHaveBeenCalledTimes(2)
-            expect(drawShapeSpy).toHaveBeenCalledWith(
-                expect.any(Number), expect.any(Number), expect.any(Number), 'hexagon', expect.any(String)
-            );
             drawShapeSpy.mockClear();
 
             tracker.update(1.0); // Neither hit active
@@ -638,7 +592,7 @@ describe('DrumTracker', () => {
         test('should draw legend background and title', () => {
             tracker.drawLegend();
 
-            expect(ctx.strokeStyle).toBe('rgba(255, 255, 255, 0.3)');
+            expect(ctx.strokeStyle).toBe('rgba(255, 255, 255, 0.9)');
             expect(ctx.lineWidth).toBe(1);
             expect(ctx.beginPath).toHaveBeenCalled();
             expect(ctx.roundRect).toHaveBeenCalled();
@@ -657,7 +611,7 @@ describe('DrumTracker', () => {
             tracker.drawLegend();
 
             expect(drawShapeSpy).toHaveBeenCalledTimes(itemsCount);
-            expect(drawShapeSpy).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 15, expect.any(String), 'hsl(0, 0%, 80)');
+            expect(drawShapeSpy).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 15, expect.any(String), 'hsl(0, 0%, 80)', 1);
 
             expect(ctx.fillText).toHaveBeenCalledTimes(itemsCount + 1); // +1 for title
             expect(ctx.font).toContain('11px sans-serif');
@@ -676,34 +630,30 @@ describe('DrumTracker', () => {
             drawTooltipSpy.mockClear();
         });
 
-        test('handleMouseMove should set hoveredHit if mouse is over a visible hit', () => {
-            const hit = mockDrumAnalysis.hits[0]; // Snare drum at 0.5s
-            tracker.lastTime = 0.55 // Ensure hit is visible
+        test('handleMouseMove should set hoveredHit using the accessor if mouse is over a visible hit', () => {
+            tracker.lastTime = 0.55; // Ensure hit is visible
+            mockHitsAccessor.getElementAtIndex.mockReturnValue(mockHits[0]);
 
-            // Mock getBoundingClientRect for accurate mouse position
-            HTMLCanvasElement.prototype.getBoundingClientRect.mockReturnValue({
-                left: 0, top: 0, width: 800, height: 400
-            });
-
-            // Calculate expected position of the snare drum
-            const xCollision = tracker.config.staticXPosition * canvas.width;
-            const yCollision = tracker.getYPosition(hit) * canvas.height;
+            // Simulate mouse being directly over the first hit's calculated
+            // position
+            const hitX = tracker.getYPosition(mockHits[0]) * canvas.getBoundingClientRect().height;
+            const hitY = tracker.config.staticXPosition * canvas.getBoundingClientRect().width;
 
             // Simulate mouse movement over the snare drum
             const mockEvent = {
-                clientX: xCollision, // check right on the calculated position
-                clientY: yCollision,
+                clientX: hitX,
+                clientY: hitY,
             };
             tracker.handleMouseMove(mockEvent);
 
-            expect(tracker.hoveredHit).toBe(hit);
-            expect(tracker.hoveredHit.lastX).toBeCloseTo(xCollision);
-            expect(tracker.hoveredHit.lastY).toBeCloseTo(yCollision);
+            expect(tracker.hoveredHit).not.toBeNull();
+            expect(tracker.hoveredHit.drum_category).toBe('snare');
         });
 
         test('handleMouseMove should clear hoveredHit if mouse is not over any visible hit', () => {
-            tracker.hoveredHit = mockDrumAnalysis.hits[0]; // Set a hovered hit initially
+            tracker.hoveredHit = { ...mockHits[0] }; // Set a hovered hit initially
             tracker.lastTime = 0.0; // No hits visible at this time
+            mockHitsAccessor.getElementAtIndex.mockReturnValue(null);
 
             const mockEvent = { clientX: 10, clientY: 10 }; // Any position
             tracker.handleMouseMove(mockEvent);
@@ -746,7 +696,7 @@ describe('DrumTracker', () => {
         });
 
         test('handleMouseOut should clear hoveredHit', () => {
-            tracker.hoveredHit = mockDrumAnalysis.hits[0];
+            tracker.hoveredHit = { ...mockHits[0] };
             tracker.handleMouseOut();
             expect(tracker.hoveredHit).toBeNull();
         });

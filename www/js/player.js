@@ -44,8 +44,9 @@ export function initPlayer(resultData, onStopAndReset, dependencies) {
         const harmonicCanvas = document.getElementById('harmonic-canvas');
         const overallVolumeCanvas = document.getElementById('overall-volume-canvas');
         const drumCanvas = document.getElementById('drum-canvas');
+        const statusMessageEl = document.getElementById('status-message');
 
-        if (!audioPlayer || !lyricCanvas || !harmonicCanvas || !overallVolumeCanvas || !drumCanvas) {
+        if (!audioPlayer || !lyricCanvas || !harmonicCanvas || !overallVolumeCanvas || !drumCanvas || !statusMessageEl) {
             console.error("One or more player components are missing from the DOM.");
             throw new Error("Missing player UI elements for initialization.")
         }
@@ -68,6 +69,26 @@ export function initPlayer(resultData, onStopAndReset, dependencies) {
         console.log('[Player] Initializing DrumTracker...')
         const drumTracker = new DrumTracker(drumCanvas, resultData.drum_analysis);
 
+        // Proactive Buffering
+        const BUFFER_AHEAD_SECONDS = 30;
+        const bufferInterval = setInterval(() => {
+            if (!audioPlayer.paused) {
+                const bufferTargetTime = audioPlayer.currentTime + BUFFER_AHEAD_SECONDS;
+                if (bufferTargetTime < audioPlayer.duration) {
+                    for (const instrument in harmonicVisualizer.streamAccessors) {
+                        harmonicVisualizer.streamAccessors[instrument].ensureDataForTime(bufferTargetTime);
+                    }
+                }
+            }
+        }, 2000); // Check every 2 seconds
+
+        // Ensure data is loaded when seeking
+        audioPlayer.addEventListener('seeking', () => {
+            for (const instrument in harmonicVisualizer.streamAccessors) {
+                harmonicVisualizer.streamAccessors[instrument].ensureDataForTime(audioPlayer.currentTime);
+            }
+        });
+
         // 4. Set up the main "heartbeat" listener
         audioPlayer.addEventListener('timeupdate', () => {
             const currentTime = audioPlayer.currentTime;
@@ -77,6 +98,14 @@ export function initPlayer(resultData, onStopAndReset, dependencies) {
             volumeTracker?.update(currentTime);
             drumTracker?.update(currentTime);
         });
+
+        // Clean up buffer interval when done
+        const originalOnStop = onStopAndReset;
+        onStopAndReset = () => {
+            clearInterval(bufferInterval);
+            originalOnStop();
+        };
+
     } catch (error) {
         // This will print any error from the Initialization to the browser console.
         console.error("! FATAL: Failed to initialize the player UI.", error);

@@ -1,142 +1,248 @@
-body { font-family: sans-serif; text-align: center; padding: 20px; margin:0; }
-a { color: black; text-decoration: none; }
-a:hover { text-decoration: underline; }
-.form-container { max-width: 500px; margin: 20px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
-.form-container div { margin-bottom: 15px; text-align: left; }
-.form-container label { display: block; margin-bottom: 5px; font-weight: bold; }
+body {
+    font-family: sans-serif;
+    text-align: center;
+    padding: 20px;
+    margin:0;
+    background-color: #121212;
+    color: #eeeeee;
+}
+a {
+    color: #8A2BE2;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+
+}
+.form-container {
+    max-width: 500px;
+    margin: 20px auto;
+    padding: 20px;
+    border: 1px solid #444;
+    border-radius: 8px;
+    background-color: #1e1e1e;
+    color: #eeeeee;
+}
+.form-container div {
+    margin-bottom: 15px;
+    text-align: left;
+}
+.form-container label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
 .form-container input[type="file"],
 .form-container input[type="text"],
-.form-container button { width: 95%; padding: 10px; font-size: 1.1em; }
-.form-container button { width: 100%; cursor: pointer; background-color: #8A2BE2; color: white; border: none; border-radius: 4px; margin-top: 10px;}
-.form-container button:hover { background-color: #0056b3; }
-#loading-indicator { display: none; margin: 20px; color: green; font-weight: bold; }
-#error-message {display: none; margin: 20px; padding: 10px; background-color: #f8d7da; color: #DAA520; border: 1px solid #f5c6cb; border-radius: 4px; }
-#result-display { display: none; margin: 20px; padding: 15px; background-color: #e2e3e5; border: 1px solid #d6d8db; border-radius: 4px; text-align: left; white-space: pre-wrap; /* Preserve whitespace and wrap */ word-wrap: break-word; font-family: monospace; }
-.ul-no-style { list-style-type: none; padding: 0; }
-
-/* --- New Player UI Styles --- */
-#upload-ui-container, #player-ui-container {
+.form-container button {
+    width: 95%;
+    padding: 10px;
+    font-size: 1.1em;
+    background-color: #282828;
+    color: #eeeeee;
+    border: 1px solid #444;
+}
+.form-container button {
+    width: 100%;
+    cursor: pointer;
+    background-color: #8A2BE2;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+.form-container button:hover {
+    background-color: #7A1DD2;
+}
+#loading-indicator {
     display: none;
+    margin: 20px;
+    color: #eeeeee;
+    font-weight: bold;
+}
+#error-message {
+    display: none;
+    margin: 20px;
+    padding: 10px;
+    background-color: #58181F;
+    color: #F0A0A0;
+    border: 1px solid #822C33;
+    border-radius: 4px;
+}
+#result-display {
+    display: none;
+    margin: 20px;
+    padding: 15px;
+    background-color: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 4px;
+    text-align: left;
+    white-space: pre-wrap; /* Preserve whitespace and wrap */
+    word-wrap: break-word;
+    font-family: monospace;
+    color: #eeeeee;
+}
+.ul-no-style {
+    list-style-type: none;
+    padding: 0;
+}
+
+/* --- Player UI Styles --- */
+#upload-ui-container,
+#player-ui-container {
+    display: none;
+}
+
+#upload-ui-container {
+    max-width: 500px;
+    margin: 20px auto;
+    padding: 20px;
+    border: 1px solid #444;
+    border-radius: 8px;
+    background-color: #1e1e1e;
+    color: #eeeeee;
 }
 
 #player-ui-container {
     display: flex;
     flex-direction: column; /* Stacks upper-stack-container and audio-player-wrapper vertically */
     width: 100%;
-    max-width: 800px;
+    max-width: 1000px;
     margin: 20px auto; /* Center it */
     /* Calculate total height based on viewport */
     height: calc(100vh - 70px); /* Full viewport height minus some padding */
-    border: 1px solid blue; /* For layout debugging */
+    /* Use box-sizing to include the border in the total height/width */
+    box-sizing: border-box;
+    border: 1px solid #444; /* For layout debugging */
 }
 
 #upper-stack-container {
-    display: flex;
-    flex-direction: row; /* Arranges volume tracker and right-stack-container horizontally */
+    display: grid;
+    grid-template-columns: 50px 1fr;
+    grid-template-rows: 1fr;
     flex-grow: 1; /*Takes up the available verical space within player-ui-container */
     width: 100%; /* Spans the width of player-ui-container */
     gap: 10px; /* Space between volume tracker and right-stack-container */
+    padding: 10px;
+    box-sizing: border-box;
+    background-color: #1e1e1e; /* Dark background for the main vizualizers */
 }
 
-#volume-tracker-container {
-    width: 50px; /* Fixed width for the skinny column */
-    flex-shrink: 0; /* Prevent it from shrinking */
-    height: 100%; /* Takes full height of upper-stack-container */
-    border: 1px solid #ddd;
-    background-color: #f9f9f9;
+#drum-tracker-container,
+#volume-tracker-container,
+#lyric-tracker-container,
+#harmonic-visualizer-container {
+    background-color: #282828;
+    border: 1px solid #444;
+    border-radius: 6px;
     padding: 5px;
     box-sizing: border-box;
-    display: flex; /* For canvas centering */
-    flex-direction: column; /* To stack legend text and canvas verically */
+    display: flex;
+    position: relative; /* For absolute positioning of legend */
+    overflow: hidden; /* Important for rounded corners on canvas */
+}
+
+#drum-tracker-container,
+#volume-tracker-container {
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    position: relative; /* For absolute positioning of legend if needed */
 }
 
+.drum-legend,
 .volume-legend {
     font-size: 0.8em;
-    color: #555;
+    font-weight: bold;
+    color: #ccc;
     white-space: nowrap; /* Prevent text from wrapping */
-    transform-origin: 0 0; /* Rotate around the top-left of the text */
-    transform: rotate(90deg); /* Rotate 90 degrees clockwise */
-    position: absolute;
-    left: 25px; /* Adjust based on padding and font size to center it */
-    top: 50%; /* Center vertically */
-    /* Push it half its width up, so it's truly centered after rotation
-     * This calulation depends on font size and line height; adjust as needed */
-    margin-left: -0.5em; /* Nudge left to account for rotation origin */
     transform: translateY(-50%) rotate(-90deg); /* Rotate -90 degrees and center */
+    position: absolute;
+    left: 20px; /* Adjust based on padding and font size to center it */
+    top: 50%; /* Center vertically */
 }
 
-#overall-volume-canvas {
+/* All canvases should fill their container */
+#drum-canvas,
+#overall-volume-canvas,
+#lyric-canvas,
+#harmonic-canvas {
     width: 100%;
     height: 100%;
     display: block;
 }
 
+#volume-tracker-container {
+    grid-column: 1;
+    grid-row: 1;
+}
+
 #right-stack-container {
-    display: flex;
-    flex-direction: column; /* Stacks Lyric and F0 verically */
-    flex-grow: 1; /* Takes up all remaining horizontal space in upper-stack-container */
-    width: 100%; /* Important for flex-grow to work correctly */
-    gap: 10px; /* Space between lyric and F0 trackers */
+display: flex;
+flex-direction: column;
+width: auto;
+gap: 10px;
+grid-column: 2;
+grid-row: 1;
 }
 
 #lyric-tracker-container {
-flex-grow: 1;
-width: 100%; /* Fill the width of right-stack-container */
-min-height: 100px; /* Minimum height for lyric tracker */
-max-height: 240px; /* Max height: 2 * audio-player height */
-border: 1px solid #ddd;
-background-color: #f9f9f9;
-padding: 10px;
-box-sizing: border-box;
-overflow: hidden; /* Ensure canvas content fits */
-display: flex; /* For canvas centering if needed */
-align-items: center;
-justify-content: center;
+    flex-grow: .2;
+    flex-basis: 0;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
 }
 
-#f0-tracker-container {
-flex-grow: 1; /* Takes up remaining vertical space */
-width: 100%; /* Fill the width of right-stack-container */
-min-height: 240px; /* Ensure it has some minimum height if space is tight */
-border: 1px solid #ddd;
-background-color: #f9f9f9;
-padding: 10px;
-box-sizing: border-box;
-overflow: hidden; /* Important for canvas */
-position: relative; /* For positioning elements inside if needed */
-display: flex;
-align-items: center;
-justify-content: center;
+#trackers-row-container {
+    display: flex;
+    flex-direction: row;
+    flex-grow: 1;
+    flex-basis: 0;
+    gap: 10px;
+    min-height: 150px;
 }
 
-#lyric-canvas, #f0-canvas {
-    width: 100%;
+#drum-tracker-container {
+    flex-grow: 1;
+    flex-basis: 0;
+    min-width: 50px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+#harmonic-visualizer-container {
+    flex-grow: 3;
+    flex-basis: 0;
+    min-width: 150px;
+}
+
+#frequency-axis {
+    width: 50px;
     height: 100%;
-    display: block; /* Removes extra space below canvas if it's inline */
+}
+
+#chroma-key {
+    width: 50px;
+    height: 100%;
 }
 
 #audio-player-wrapper { /* Changed from #audio-player-container to avoid conflict with JS var.
-* Inspired by YouTube Music player. Includes title, metadata, player, controls */
-width: 100%; /* Take full width of player-ui-container */
-height: 120px;  /* Fixed height for the audio player section */
-flex-shrink: 0; /* Prevent shrinking */
-padding: 15px;
-box-sizing: border-box;
-background-color: #f0f0f0;
-border: 1px solid #ccc;
-border-radius: 8px;
+    * Inspired by YouTube Music player. Includes title, metadata, player, controls */
+    width: 100%; /* Take full width of player-ui-container */
+    height: auto;
+    max-height: 120px;  /* Fixed height for the audio player section */
+    flex-shrink: 0; /* Prevent shrinking */
+    padding: 15px;
+    box-sizing: border-box;
+    background-color: #1e1e1e;
+    border: 1px solid #444;
+    color: #eeeeee;
 }
 
 /* Style the custom controls for a better look */
-#custom-controls {
-    display: flex;
-    justify-content: space-around;
-    align-items: center;
-    margin-top: 10px;
-}
 #custom-controls button {
     padding: 8px 12px;
     font-size: 0.9em;
@@ -148,7 +254,4 @@ border-radius: 8px;
 }
 #custom-controls button:hover {
     background-color: #7A1DD2; /* Darker shade */
-}
-#volume-control {
-    width: 100px;
 }
