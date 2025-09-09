@@ -33,9 +33,9 @@ COPY musictranslator/harmonic_service /app/harmonic_service
 
 COPY --from=builder /wheels /wheels/
 
-RUN pip install --no-cache-dir --find-links=/wheels -r /app/harmonic_service/requirements.txt \
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r /app/harmonic_service/requirements.txt \
     && rm -rf /wheels
 
 EXPOSE 20006
 
-CMD ["gunicorn", "--bind", "0.0.0.0:20006", "harmonic_service.app:app", "--workers", "5", "--timeout", "1200"]
+CMD ["gunicorn", "--bind", "0.0.0.0:20006", "harmonic_service.app:app", "--workers", "1", "--timeout", "1200"]

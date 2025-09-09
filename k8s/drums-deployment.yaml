@@ -21,13 +21,13 @@ spec:
             - containerPort: 25941
           env:
             - name: DRUMS_CPU_WORKERS
-              value: "4"
+              value: "2"
           resources:
             requests:
               cpu: "4"
               memory: "4Gi"
             limits:
-              cpu: "8"
+              cpu: "6"
               memory: "8Gi"
           volumeMounts:
             - name: shared-data

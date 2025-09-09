@@ -2,6 +2,7 @@
 This is the module contains functions responsible for finding a wide
 range of audio features for the separate instrument stem tracks
 """
+import json
 import numpy as np
 import librosa
 
@@ -19,6 +20,7 @@ def analyze_full_track_features(audio_path, sr=22050):
         or None on failure.
     """
     try:
+        librosa.cache.clear()
         y, sr = librosa.load(audio_path, sr=sr)
 
         n_fft = 2048
@@ -72,6 +74,7 @@ def generate_time_sliced_features(audio_path, sr=22050):
                       or None on failure, for a single time slice.
     """
     try:
+        librosa.cache.clear()
         # Load the audio file once
         y, sr = librosa.load(audio_path, sr=sr)
 
@@ -143,11 +146,41 @@ def generate_time_sliced_features(audio_path, sr=22050):
         print(f"Error processing {audio_path}: {e}")
         return None
 
+def generate_and_save_time_sliced_features(audio_path, output_path, sr=22050):
+    """
+    Runs the time-sliced feature generator and saves the output to a file.
+    This is designed to be run in a separate process.
+
+    Args:
+        audio_path (str): Path to the source audio file.
+        output_path (str): Path to save the resulting NDJSON file.
+        sr (int): Sample rate.
+
+    Returns:
+        str: The path to the output file upon success, or None on failure.
+    """
+    try:
+        generator = generate_time_sliced_features(audio_path, sr=sr)
+        if generator is None:
+            # This handles cases like silent or too-short audio
+            return None
+
+        with open(output_path, 'w') as f:
+            for time_slice_data in generator:
+                f.write(json.dumps(time_slice_data) + "\n")
+        return output_path
+    except Exception as e:
+        # It's better to log here if possible, but for a process pool,
+        # returning None is a clear failure signal.
+        print(f"Error generating or saving stream for {audio_path}: {e}")
+        return None
+
 def get_static_features(audio_path, sr=22050):
     """
     Computes static, one-time features like tempo, beats, and onsets.
     """
     try:
+        librosa.cache.clear()
         y, sr = librosa.load(audio_path, sr=sr)
         hop_length = 512
         n_fft = 2048

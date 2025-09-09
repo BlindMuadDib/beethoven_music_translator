@@ -25,7 +25,7 @@ spec:
               memory: "6Gi"
             limits:
               cpu: "4"
-              memory: "16Gi"
+              memory: "10Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/lyrics

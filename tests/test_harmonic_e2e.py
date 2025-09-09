@@ -200,6 +200,21 @@ class TestHarmonicServiceE2EPodman(unittest.TestCase):
     def tearDownClass(cls):
         """Stops and removes the Podman container and optionally the image."""
         if cls.container:
+            # Try to print the logs if the test failed before deleting the
+            # container
+            print(f"--- Logs for container {cls.container.name} ---")
+            try:
+                logs = cls.container.logs(stdout=True, stderr=True)
+                # The logs can be a single byte string or a list of strings
+                if isinstance(logs, bytes):
+                    print(logs.decode('utf-8', errors='ignore'))
+                elif isinstance(logs, list):
+                    for log_line in logs:
+                        print(log_line.decode('utf-8', errors='ignore').strip())
+            except APIError as e:
+                print(f"Could not retrieve logs for container {cls.container.name}: {e}")
+            print("--- End of logs ---")
+
             print(*f"Stopping container {cls.container.name} ... ")
             try:
                 cls.container.stop(timeout=10)
@@ -441,8 +456,22 @@ class TestHarmonicServiceE2EPodman(unittest.TestCase):
                 # Construct the streaming URL
                 container_stem_path = stem_paths_payload[instrument]
                 encoded_stem_path = quote(container_stem_path)
-                stream_url = f"{SERVICE_URL}/api/harmonic/stream/{job_id}_{instrument}.ndjson?stem_path={encoded_stem_path}"
+                stream_url = f"{SERVICE_URL}/api/harmonic/stream/{job_id}_{instrument}.ndjson"
                 print(f"Requesting stream from: {stream_url}")
+
+                # Wait for the stream file to exist before requesting it
+                expected_stream_file = os.path.join(
+                    self.host_results_dir.name,
+                    f"{job_id}_{instrument}.ndjson"
+                )
+                stream_file_found = False
+                for _ in range(1200): # Wait up to 20 minutes
+                    if os.path.exists(expected_stream_file):
+                        stream_file_found = True
+                        break
+                    time.sleep(10)
+                self.assertTrue(stream_file_found,
+                                f"Stream file for {instrument} was not created in time.")
 
                 # Fetch and validate the stream
                 try:

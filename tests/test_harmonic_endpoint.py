@@ -218,12 +218,22 @@ class TestHarmonicServiceEndpoint(unittest.TestCase):
         temp_file = os.path.join(TEST_ENDPOINT_AUDIO_DIR,
                                  f'{job_id}_test.wav')
         create_sine_wave_file(temp_file, freq=440.0, duration=1.0)
+        stem_name = "vocals"
 
-        # The streaming endpoint will receive the path via a query param
-        stream_url = f"/api/results/stream/{job_id}_test.ndjson?stem_path={temp_file}"
+        # Manually create the pre-compiled NDJSON file the endpoint expects
+        ndjson_content = [
+            {"time": 0.0, "f0_data": 440.0, "mfccs": [1]*20, "chroma_stft": [1]*12, "spectrogram": [1]*1025, "frequencies": [1]*1025, "spectral_centroid": 1.0, "spectral_bandwidth": 1.0, "spectral_rolloff": 1.0, "spectral_flatness": 1.0, "rms": 1.0},
+            {"time": 0.1, "f0_data": 441.0, "mfccs": [1]*20, "chroma_stft": [1]*12, "spectrogram": [1]*1025, "frequencies": [1]*1025, "spectral_centroid": 1.0, "spectral_bandwidth": 1.0, "spectral_rolloff": 1.0, "spectral_flatness": 1.0, "rms": 1.0}
+        ]
+        stream_file_path = os.path.join(self.temp_results_dir.name,
+                                        f"{job_id}_{stem_name}.ndjson")
+        with open(stream_file_path, 'w') as f:
+            for line in ndjson_content:
+                f.write(json.dumps(line) + '\n')
 
+        # Call the URL
+        stream_url = f"/api/harmonic/stream/{job_id}_{stem_name}.ndjson"
         response = self.client.get(stream_url)
-        os.remove(temp_file)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.mimetype, 'application/x-ndjson')
