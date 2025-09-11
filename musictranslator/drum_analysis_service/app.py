@@ -10,7 +10,7 @@ from . import drum_analysis
 from . import DrumMLA as drum_mla_module
 from .DrumMLA import DrumMLA
 
-MAX_CPU_WORKERS = int(os.environ.get("DRUMS_CPU_WORKERS", "8"))
+MAX_CPU_WORKERS = int(os.environ.get("DRUMS_CPU_WORKERS", "2"))
 
 # --- Flask App Setup ---
 app = Flask(__name__)

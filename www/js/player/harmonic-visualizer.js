@@ -59,6 +59,8 @@ export class HarmonicVisualizer {
         this.ctx = canvas.getContext('2d');
         this.data = harmonicData;
         this.axisContainer = document.getElementById('frequency-axis');
+        this.chromaKeyContainer = document.getElementById('chroma-key');
+        this.isBuffering = false;
 
         // Create accessors for each instrument's stream
         this.streamAccessors = {};
@@ -79,8 +81,9 @@ export class HarmonicVisualizer {
             // Colors are generated dynamically based on spectral features
             baseSaturation: 80, // %
             baseLightness: 50, // %
-            minBlobWidth: 20, // A bit larger so it's always visible
-            maxBlobWidthRatio: 0.49, // Max width is 45% of column width
+            minBlobWidth: 5,
+            maxBlobWidthRatio: 1,
+            blobWidthScale: 3, // Multiplier to make blobs thicker and more visible
             minPadding: 10, // px, padding around the drawing area
             onsetItemDecay: 100, // ms for onset flash to fade
             beatItemDecay: 100, // ms for beat square to fade
@@ -93,6 +96,7 @@ export class HarmonicVisualizer {
             rmsMax: 1, // A guess for max RMS to normalize volume
             tempoLinePixelsPerBeat: 150, // px
             chromaRingWidth: 10, // px
+            labelFont: '14px sans-serif'
         };
 
         //Dynamic state to track
@@ -106,6 +110,7 @@ export class HarmonicVisualizer {
 
         // Initial drawing to set up the canvas
         this.drawFrequencyAxis();
+        this.drawChromaKey();
         this.resize();
         this.update(0);
     }
@@ -120,6 +125,7 @@ export class HarmonicVisualizer {
         }
         // Redraw with current time whenever the size changes
         this.drawFrequencyAxis();
+        this.drawChromaKey();
         this.update(this.currentTime);
     }
 
@@ -135,7 +141,17 @@ export class HarmonicVisualizer {
         this.currentTime = currentTime;
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+        if (this.isBuffering) {
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            this.ctx.font = '18px sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('Buffering visuals...', this.canvas.width / 2, this.canvas.height / 2);
+            return;
+        }
+
         const activeInstruments = this.instrumentOrder.filter(inst => !this.minimizedInstruments.includes(inst));
+        if (activeInstruments.length === 0) return;
+
         const totalWidth = this.canvas.width;
         const columnWidth = (totalWidth - (this.config.columnGap * (activeInstruments.length - 1))) / activeInstruments.length;
 
@@ -152,7 +168,33 @@ export class HarmonicVisualizer {
                 instrumentName,
                 stemData
             );
+            this.drawInstrumentLabel(instrumentName, columnX, columnWidth);
         });
+    }
+
+    /**
+     * Checks if data for a specific time is available for all instruments.
+     * @param {number} time - The time in seconds.
+     * @returns {boolean} - True if all data is loaded.
+     */
+    isDataAvailableForTime(time) {
+        for (const instrumentName in this.streamAccessors) {
+            if (!this.streamAccessors[instrumentName].isDataAvailableForTime(time)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Ensures data for a specific time is loaded for all instruments.
+     * @param {number} time - The time in seconds.
+     * @returns {Promise<void>} - A proimise that resolves when all data is loaded.
+     */
+    ensureDataForTime(time) {
+        const promises = Object.values(this.streamAccessors)
+            .map(accessor => accessor.ensureDataForTime(time));
+        return Promise.all(promises);
     }
 
     /**
@@ -274,10 +316,15 @@ export class HarmonicVisualizer {
      * @param {Array<number>} frequencies - The frequency bins array.
      * @returns {number} - The normalized Y position (0 = top, 1 = bottom).
      */
-    mapValueToNormalizedY(frequency, frequencies) {
-        const minFreq = frequencies[0] || 0;
-        const maxFreq = frequencies[frequencies.length - 1] || 22050;
-        return (frequency - minFreq) / (maxFreq - minFreq);
+    mapValueToLogNormalizedY(frequency, minFreq = 20, maxFreq = 20000) {
+        if (frequency <= minFreq) return 0;
+        if (frequency >= maxFreq) return 1;
+
+        const logMin = Math.log(minFreq);
+        const logMax = Math.log(maxFreq);
+        const logFreq = Math.log(frequency);
+
+        return (logFreq - logMin) / (logMax - logMin);
     }
 
     /**
@@ -307,11 +354,11 @@ export class HarmonicVisualizer {
      */
     drawBlob(x, radius, color, f0, spectralCentroid, spectralBandwidth, spectralFlatness, spectrogram, frequencies, mfccs) {
         // Find the y-position based on f0
-        const normalizedF0 = this.mapValueToNormalizedY(f0, frequencies);
+        const normalizedF0 = this.mapValueToLogNormalizedY(f0, frequencies);
         const f0_y = this.canvas.height - (normalizedF0 * this.canvas.height);
 
         // Find y-position for spectral centroid
-        const normalizedCentroid = this.mapValueToNormalizedY(spectralCentroid, frequencies);
+        const normalizedCentroid = this.mapValueToLogNormalizedY(spectralCentroid, frequencies);
         const centroid_y = this.canvas.height - (normalizedCentroid * this.canvas.height);
 
         this.ctx.beginPath();
@@ -340,7 +387,7 @@ export class HarmonicVisualizer {
      */
     drawBlobSimple(x, radius, color, spectralCentroid, spectralFlatness, spectrogram, frequencies, mfccs) {
         // Find y-position for spectral centroid
-        const normalizedCentroid = this.mapValueToNormalizedY(spectralCentroid, frequencies);
+        const normalizedCentroid = this.mapValueToLogNormalizedY(spectralCentroid, frequencies);
         const centroid_y = this.canvas.height - (normalizedCentroid * this.canvas.height);
 
         this.ctx.beginPath();
@@ -376,35 +423,39 @@ export class HarmonicVisualizer {
         };
 
         // Draw the bottom point
-        this.ctx.moveTo(x, this.canvas.height - (this.mapValueToNormalizedY(frequencies[frequencies.length - 1], frequencies) * this.canvas.height));
-
-        // Draw the right side of the blob (from top to bottom)
-        for (let i = spectrogram.length - 1; i >= 0; i--) {
-            const freq = frequencies[i];
-            const amplitude = spectrogram[i];
-            const normalizedY = this.mapValueToNormalizedY(freq, frequencies);
-            const currentY = this.canvas.height - (normalizedY * this.canvas.height);
-
-            const amplitudeRadius = radius * (amplitude / maxAmplitude);
-            const jitter = (rand(seed + i) - 0.5) * 2 * randomness;
-            const finalRadius = amplitudeRadius + jitter;
-
-            this.ctx.lineTo(x + finalRadius, currentY);
-        }
+        const firstFreqY = this.canvas.height - (this.mapValueToLogNormalizedY(frequencies[0]) * this.canvas.height)
+        this.ctx.moveTo(x, firstFreqY);
 
         // Draw the left side of the blob (from bottom to top)
         for (let i = 0; i < spectrogram.length; i++) {
             const freq = frequencies[i];
             const amplitude = spectrogram[i];
-            const normalizedY = this.mapValueToNormalizedY(freq, frequencies);
+            const normalizedY = this.mapValueToLogNormalizedY(freq);
             const currentY = this.canvas.height - (normalizedY * this.canvas.height);
 
             const amplitudeRadius = radius * (amplitude / maxAmplitude);
             const jitter = (rand(seed + i) - 0.5) * 2 * randomness;
-            const finalRadius = amplitudeRadius + jitter;
+            let finalRadius = (amplitudeRadius + jitter) * this.config.blobWidthScale;
+            finalRadius = Math.min(radius, finalRadius); // Clamp to maxBlobWidth
 
             this.ctx.lineTo(x - finalRadius, currentY);
         }
+
+        // Draw the right side of the blob (from top to bottom)
+        for (let i = spectrogram.length - 1; i >= 0; i--) {
+            const freq = frequencies[i];
+            const amplitude = spectrogram[i];
+            const normalizedY = this.mapValueToLogNormalizedY(freq);
+            const currentY = this.canvas.height - (normalizedY * this.canvas.height);
+
+            const amplitudeRadius = radius * (amplitude / maxAmplitude);
+            const jitter = (rand(seed + i) - 0.5) * 2 * randomness;
+            let finalRadius = (amplitudeRadius + jitter) * this.config.blobWidthScale;
+            finalRadius = Math.min(radius, finalRadius); // Clamp to maxBlobWidth
+
+            this.ctx.lineTo(x + finalRadius, currentY);
+        }
+
     }
 
     /**
@@ -412,7 +463,7 @@ export class HarmonicVisualizer {
      * @param {number} x - Center x-coordinate.
      * @param {number} y - Center y-coordinate.
      * @param {number} radius - Base radius of the texture.
-     * @param {Array<number>} mfccs - The 13 MFCC coefficients.
+     * @param {Array<number>} mfccs - The 20 MFCC coefficients.
      */
     drawMfccTexture(x, y, radius, mfccs) {
         if (!mfccs || mfccs.length < 13) return;
@@ -424,32 +475,87 @@ export class HarmonicVisualizer {
         const numShapes = 8 + Math.round(Math.abs(mfccs[0]) / maxMfcc * 12); // Between 8 and 20 shapes
 
         for (let j = 0; j < numShapes; j++) {
-            this.ctx.globalAlpha = 0.1 + (j / numShapes * 0.1); // Fade out to create depth
+            this.ctx.globalAlpha = 0.2 + (j / numShapes) * 0.3; // Fade out to create depth
 
-            const shapeRadius = radius * (0.1 + Math.abs(mfccs[j % 13]) / maxMfcc * 0.9);
-            const numVertices = 3 + Math.round(Math.abs(mfccs[(j + 1) % 13]) / maxMfcc * 7); // 3 to 10 vertices
-            const rotation = mfccs[(j + 2) % 13] * Math.PI;
-            const offsetX = x + Math.cos(j / numShapes * Math.PI * 2) * (radius * 0.5);
-            const offsetY = y + Math.sin(j / numShapes * Math.PI * 2) * (radius * 0.5);
+            const shapeRadius = radius * (0.1 + Math.abs(mfccs[j % 20]) / maxMfcc * 0.8);
+            const rotation = mfccs[(j + 2) % 20] * Math.PI;
+            const offsetX = x + (mfccs[(j + 2) % 20] / maxMfcc) * (radius * 0.4);
+            const offsetY = y + (mfccs[(j + 3) % 20] / maxMfcc) * (radius * 0.4);
+            const hue = (mfccs[(j + 6) % 20] / maxMfcc) * 360;
 
             this.ctx.beginPath();
-            for (let i = 0; i < numVertices; i++) {
-                const angle = (Math.PI * 2 / numVertices) * i + rotation;
-                const px = offsetX + shapeRadius * Math.cos(angle);
-                const py = offsetY + shapeRadius * Math.sin(angle);
+            const shapeType = j % 4;
 
-                if (i === 0) {
-                    this.ctx.moveTo(px, py);
-                } else {
-                    this.ctx.lineTo(px, py);
+            if (shapeType !== 3) {
+                this.ctx.fillStyle = `hsla(${hue}, 80%, 70%, 0.7)`;
+            }
+
+            switch (shapeType) {
+                case 0: { // Polygon
+                    const numVertices = 3 + Math.round(Math.abs(mfccs[(j + 4) % 20] / maxMfcc) * 5);
+                    for (let i = 0; i < numVertices; i++) {
+                        const angle = (Math.PI * 2 / numVertices) * i + rotation;
+                        const px = offsetX + shapeRadius * Math.cos(angle);
+                        const py = offsetY + shapeRadius * Math.sin(angle);
+                        if (i === 0) this.ctx.moveTo(px, py);
+                        else this.ctx.lineTo(px, py);
+                    }
+                    this.ctx.closePath();
+                    this.ctx.fill();
+                    break;
+                }
+                case 1: { // Polygram (Star)
+                    const points = 3 + Math.round(Math.abs(mfccs[(j + 4) % 20] / maxMfcc) * 4);
+                    const pointiness = 0.4 + Math.abs(mfccs[( j + 5) % 20] / maxMfcc) * 0.5;
+                    this.drawPolygram(offsetX, offsetY, shapeRadius, points, pointiness, rotation);
+                    this.ctx.fill();
+                    break;
+                }
+                case 2: { // Ellipse
+                    const ellipseRx = shapeRadius;
+                    const ellipseRy = shapeRadius * (0.3 + Math.abs(mfccs[(j + 4) % 20] / maxMfcc) * 0.7);
+                    this.ctx.ellipse(offsetX, offsetY, ellipseRx, ellipseRy, rotation, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    break;
+                }
+                case 3: { // Line
+                    const endX = offsetX + Math.cos(rotation) * shapeRadius * 2;
+                    const endY = offsetY + Math.sin(rotation) * shapeRadius * 2;
+                    this.ctx.moveTo(offsetX - (endX - offsetX), offsetY - (endY - offsetY));
+                    this.ctx.lineTo(endX, endY);
+                    this.ctx.lineWidth = 1 + Math.abs(mfccs[(j + 4) % 20] / maxMfcc) * 4;
+                    const hue = (mfccs[(j + 6) % 20] / maxMfcc) * 360;
+                    this.ctx.strokeStyle = `hsla(${hue}, 80%, 70%, 0.7)`;
+                    this.ctx.stroke();
+                    break;
                 }
             }
-            this.ctx.closePath();
-            this.ctx.fillStyle = `hsla(${this.mapValueToHue(mfccs[(j + 3) % 13], maxMfcc)}, 70%, 80%, 0.5)`;
-            this.ctx.fill();
         }
 
         this.ctx.restore();
+    }
+
+    /**
+     * Draws a polygram (star) shape.
+     * @param {number} x - Center x-coordinate
+     * @param {number} y - Center y-coordinate
+     * @param {number} radius - Outer radius
+     * @param {number} sides - Number of points
+     * @param {number} pointiness - How sharp the points are (0-1)
+     * @param {number} rotation - Rotation in radians
+     */
+    drawPolygram(x, y, radius, sides, pointiness = 0.5, rotation = 0) {
+        const angleStep = Math.PI / sides;
+        this.ctx.beginPath();
+        for (let i = 0; i < 2 * sides; i++) {
+            const r = (i % 2 === 0) ? radius : radius * pointiness;
+            const angle = i * angleStep + rotation
+            const px = x + r * Math.cos(angle);
+            const py = y + r * Math.sin(angle);
+            if (i === 0) this.ctx.moveTo(px, py);
+            else this.ctx.lineTo(px, py);
+        }
+        this.ctx.closePath();
     }
 
     /**
@@ -462,21 +568,21 @@ export class HarmonicVisualizer {
     drawChromaHoops(x, y, blobWidth, chromaStft) {
         if (!chromaStft || chromaStft.length !== 12) return;
 
-        const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-        const hoopRadiusX = blobWidth * 0.8; // Ellipse width
+        const hoopRadiusX = blobWidth + this.config.chromaRingWidth; // Ellipse width
         const hoopRadiusY = 8; // Ellipse height (constant for 3D effect)
-        const verticalSpacing = 15; // Space between hoops
+        const availableHeight = this.canvas.height * 0.8;
+        const verticalSpacing = availableHeight / 12; // Space between hoops
 
         for (let i = 0; i < 12; i++) {
             const chromaValue = chromaStft[i];
             if (chromaValue < 0.1) continue; // Don't draw faint hoops
 
             // Distribute hoops vertically around the center
-            const hoopY = y + (i - 5.5) * verticalSpacing;
+            const hoopY = (this.canvas.height / 2) + (i - 5.5) * verticalSpacing;
             const opacity = Math.min(1, chromaValue * 1.5);
 
             this.ctx.strokeStyle = `hsla(${i * 30}, 100%, 70%, ${opacity})`; // Give each note a unique color
-            this.ctx.lineWidth = 2;
+            this.ctx.lineWidth = 2 + (chromaValue * 3); // Stronger notes are thicker
             this.ctx.beginPath();
             this.ctx.ellipse(x, hoopY, hoopRadiusX, hoopRadiusY, 0, 0, 2 * Math.PI);
             this.ctx.stroke();
@@ -556,28 +662,61 @@ export class HarmonicVisualizer {
         this.ctx.restore();
     }
 
+    /**
+     * Draws the instrument name label at the top of a column.
+     * @param {string} name - The name of the instrument
+     * @param {number} x - The x-coordinate of the column.
+     * @param {number} width - The width of the column.
+     */
+    drawInstrumentLabel(name, x, width) {
+        this.ctx.fillStyle = '#ccc';
+        this.ctx.font = this.config.labelFont;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(name, x + width / 2, 20);
+    }
+
     drawFrequencyAxis() {
+        if (!this.axisContainer) return;
         this.axisContainer.innerHTML = '';
         const frequencies = [65.41, 130.81, 261.63, 523.25, 1046.50, 2093.00, 4186.01]; // C2 to C8
         const labels = ['C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
 
-        // Use a dummy full frequency range for mapping, similar to what
-        // librosa provides
-        const freqBins = Array.from({length: 1025}, (_, i) => i * (22050 / 1024));
-
         frequencies.forEach((freq, i) => {
-            const normalizedY = this.mapValueToNormalizedY(freq, freqBins);
+            const normalizedY = this.mapValueToLogNormalizedY(freq);
             const yPos = (1 - normalizedY) * 100; // a percentage from the top
 
             const labelEl = document.createElement('div');
             labelEl.textContent = labels[i];
-            labelEl.position = 'absolute';
+            labelEl.style.position = 'absolute';
             labelEl.style.top = `${yPos}%`;
             labelEl.style.right = '5px'; // Position inside the axis container
             labelEl.style.transform = 'translateY(-50%)'; // Center verically
             labelEl.style.color = '#ccc';
             labelEl.style.fontSize = '12px';
             this.axisContainer.appendChild(labelEl);
+        });
+    }
+
+    drawChromaKey() {
+        if (!this.chromaKeyContainer) return;
+        this.chromaKeyContainer.innerHTML = '';
+        const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const availableHeight = this.canvas.height * 0.8;
+        const verticalSpacing = availableHeight / 12;
+
+        notes.forEach((note, i) => {
+            const yPos = (this.canvas.height / 2) + (i - 5.5) * verticalSpacing;
+            if (yPos < 0 || yPos > this.canvas.height) return; // Don't draw if off-canvas
+
+            const labelEl = document.createElement('div');
+            labelEl.textContent = note;
+            labelEl.style.position = 'absolute';
+            labelEl.style.top = `${yPos}px`;
+            labelEl.style.left = '5px';
+            labelEl.style.transform = 'translateY(-50%)';
+            labelEl.style.color = `hsl(${i * 30}, 100%, 70%)`;
+            labelEl.style.fontSize = '12px';
+            this.chromaKeyContainer.appendChild(labelEl);
         });
     }
 }

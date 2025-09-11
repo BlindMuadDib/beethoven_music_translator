@@ -222,11 +222,13 @@ grid-row: 1;
 #frequency-axis {
     width: 50px;
     height: 100%;
+    position: relative; /* Crucial for positioning child labels */
 }
 
 #chroma-key {
     width: 50px;
     height: 100%;
+    position: relative; /* Crucial for positioning child labels */
 }
 
 #audio-player-wrapper { /* Changed from #audio-player-container to avoid conflict with JS var.

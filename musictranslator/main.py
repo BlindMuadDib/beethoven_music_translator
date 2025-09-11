@@ -320,7 +320,7 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
 
         logger.info("Concurrent processing finished. Checking results ...")
 
-        # Process alignment results (critical path)
+        # Process alignment results
         if thread_results_shared["alignment_error"]:
             err_msg = f"Lyrics alignment failed: {thread_results_shared['alignment_error']}"
             logger.error(err_msg)

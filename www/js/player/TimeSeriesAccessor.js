@@ -4,8 +4,8 @@
  */
 export class TimeSeriesAccessor {
     /**
-     * @param {string} streamUrl - The base URL to fetch NDJSON data
-     * chunks from.
+     * @param {string|Array} source - The base URL to fetch NDJSON data
+     * chunks or a raw array.
      * @param {number} totalElements - The total number of elements
      * expected in the full dataset.
      * @param {number} [chunkSize=500] - The number of elements to fetch per request.
@@ -16,6 +16,7 @@ export class TimeSeriesAccessor {
         }
         this.totalElements = totalElements;
         this.chunkSize = chunkSize;
+        this.timePerFrame = 512 / 22050;
 
         this.chunks = new Map(); // Stores loaded data chunks (Map<chunkIndex, dataArray>)
         this.requests = new Map(); // Track in-flight requests to prevent re-fetching
@@ -27,18 +28,20 @@ export class TimeSeriesAccessor {
             this.streamUrl = source;
         } else {
             this.isUrlSource = false;
-            let data;
-            // For raw strings (like drum hits), parse it once and store it
-            try {
-                data = typeof source === 'string' ? JSON.parse(source) : source || [];
-                if (!Array.isArray(data)) {
-                    // If parsing succeeds but it's not an array, treat as failure
-                    throw new Error("Parsed source is not an array.");
+            let data = [];
+            if (Array.isArray(source)) {
+                data = source;
+            } else if (typeof source === 'string') {
+                try {
+                    const parsed = JSON.parse(source);
+                    if (Array.isArray(parsed)) {
+                        data = parsed;
+                    }
+                } catch (error) {
+                    console.error("TimeSeriesAccessor Error: Failed to parse non-API string source as JSON.");
                 }
-            } catch (e) {
-                console.error("Failed to parse raw string source in TimeSeriesAccessor:", e);
-                data = [];
             }
+
             this.chunks.set(0, data);
             data.forEach((item, i) => {
                 if (item && i < this.totalElements) {
@@ -57,7 +60,7 @@ export class TimeSeriesAccessor {
     async ensureDataForTime(time) {
         if (!this.isUrlSource) return Promise.resolve(); // Don't fetch for raw string data
 
-        const targetIndex = this._findClosestIndexBinary(time);
+        const targetIndex = this._getIndexForTime(time);
         const chunkIndex = Math.floor(targetIndex / this.chunkSize);
 
         if (!this.chunks.has(chunkIndex) && !this.requests.has(chunkIndex)) {
@@ -65,6 +68,17 @@ export class TimeSeriesAccessor {
             return this._fetchChunk(chunkIndex);
         }
         return Promise.resolve();
+    }
+
+    /**
+     * Checks if data for a given time is already loaded in memory.
+     * @param {number} time - The time in seconds.
+     * @returns {boolean}
+     */
+    isDataAvailableForTime(time) {
+        const targetIndex = this._getIndexForTime(time);
+        const chunkIndex = Math.floor(targetIndex / this.chunkSize);
+        return this.chunks.has(chunkIndex);
     }
 
     /**
@@ -91,6 +105,14 @@ export class TimeSeriesAccessor {
      * @private
      */
     _fetchChunk(chunkIndex) {
+        if (chunkIndex < 0 || (chunkIndex * this.chunkSize) >= this.totalElements) {
+            return Promise.resolve();
+        }
+        // If there's already a request for this chunk, return the existing promise
+        if (this.requests.has(chunkIndex)) {
+            return this.requests.get(chunkIndex);
+        }
+
         const start = chunkIndex * this.chunkSize;
         const end = Math.min(start + this.chunkSize, this.totalElements);
 
@@ -125,6 +147,10 @@ export class TimeSeriesAccessor {
 
         this.requests.set(chunkIndex, promise);
         return promise;
+    }
+
+    _getIndexForTime(time) {
+        return Math.min(this.totalElements - 1, Math.max(0, Math.floor(time / this.timePerFrame)));
     }
 
     /**

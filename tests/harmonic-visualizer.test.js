@@ -17,7 +17,7 @@ describe('HarmonicVisualizer', () => {
     let mockCanvas, mockCtx, mockAccessorInstance, mockData;
 
     beforeEach(() => {
-        document.body.innerHTML = '<div id="frequency-axis"></div>';
+        document.body.innerHTML = '<div id="frequency-axis"></div><div id="chroma-key"></div>';
         mockCanvas = {
             width: 800,
             height: 600,
@@ -39,6 +39,8 @@ describe('HarmonicVisualizer', () => {
                 bezierCurveTo: jest.fn(),
                 translate: jest.fn(),
                 rotate: jest.fn(),
+                ellipse: jest.fn(),
+                fillText: jest.fn(),
             }),
         };
 
@@ -166,6 +168,15 @@ describe('HarmonicVisualizer', () => {
         );
     });
 
+    test('drawInstrumentColumn should correctly draw max blobWidth as touching the blobColumn next to it', () => {
+        // When multiple instruments are at max volume it is like not much
+        // else can cut through the noise, the visual should be similar.
+        // If an instrument is at its max volume, it should practically touch
+        // the column next to it. If two adjacent instruments are at max
+        // volume, their blobs should practically touch one another.
+        throw new Error('Not implemented, please write the test case.')
+    });
+
     test('drawBlobSimple is called when f0 is null', () => {
         const mockTimeSlice = {
             f0_data: null, rms: 0.5,
@@ -191,7 +202,7 @@ describe('HarmonicVisualizer', () => {
         expect(visualizer.drawBlobSimple).toHaveBeenCalled();
     });
 
-    test('drawInstrumentColumn should not draw blob if timeSlice is null', () => {
+    test('drawInstrumentColumn should not draw blob or chroma hoops if timeSlice is null', () => {
         mockAccessorInstance.getElementAtTime.mockReturnValue(null);
         const visualizer = new HarmonicVisualizer(mockCanvas, mockData);
         const drawBlobSpy = jest.spyOn(visualizer, 'drawBlob');
@@ -216,6 +227,7 @@ describe('HarmonicVisualizer', () => {
     });
 
     test('createDynamicPath uses spectrogram data to draw a jagged path for high flatness', () => {
+        // Currently no jagged lines
         const visualizer = new HarmonicVisualizer(mockCanvas, mockData);
         visualizer.drawMfccTexture = jest.fn();
         const spectrogram = [0.1, 0.5, 0.2, 0.7];
@@ -227,17 +239,29 @@ describe('HarmonicVisualizer', () => {
         expect(mockCtx.lineTo).toHaveBeenCalledTimes(spectrogram.length * 2);
     });
 
-    test('drawMfccTexture draws polygons based on MFCCs', () => {
+    test('drawMfccTexture draws a pattern of various shapes, lines and curves on the blob based on MFCCs', () => {
+        // Currently not correctly drawing any texture on the blob
+        // The pattern should use the 20 MFCC coefficients to make
+        // meaningful patterns that can be interpretted by the viewer as
+        // giving context and relativity of timbre between similar and varied
+        // sounding instruments.
         const visualizer = new HarmonicVisualizer(mockCanvas, mockData);
 
         // .getElement() must be used to retrieve the data from the accessor
-        const mfccsSlice = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+        const mfccsSlice = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
         visualizer.drawMfccTexture(400, 300, 50, mfccsSlice);
+
+        const maxMfcc = Math.max(...mfccsSlice.map(m => Math.abs(m))) || 1;
+        const numShapes = 8 + Math.round(Math.abs(mfccsSlice[0] / maxMfcc) * 12);
 
         expect(mockCtx.save).toHaveBeenCalled();
         expect(mockCtx.clip).toHaveBeenCalled();
-        expect(mockCtx.beginPath).toHaveBeenCalled();
-        expect(mockCtx.fill).toHaveBeenCalled();
+        // Expect fill for polygons, stars, ellipses and stroke for lines
+        const expectedFills = Math.ceil(numShapes * (3/4));
+        const expectedStrokes = Math.floor(numShapes * (1/4));
+
+        expect(mockCtx.fill).toHaveBeenCalledTimes(expectedFills);
+        expect(mockCtx.stroke).toHaveBeenCalledTimes(expectedStrokes);
         expect(mockCtx.restore).toHaveBeenCalled();
     });
 
@@ -270,5 +294,20 @@ describe('HarmonicVisualizer', () => {
         visualizer.drawTemporalEffects(100, 200, mockData.stem_analyses.vocals, 5000);
 
         expect(mockCtx.fillRect).not.toHaveBeenCalled();
-    })
+    });
+
+    test('drawTempoLines should keep an instruments tempo line contained within its own column', () => {
+        // It appears that sometimes tempo lines start to overlap one another
+        throw new Error('Test not implemented yet, please write test case.')
+    });
+
+    test('drawChromaHoops should draw hoops at a constant size, with their tips connected horizontally over the column borders, and equally spaced vertically', () => {
+        // The current vertical spacing is perfect
+        throw new Error("Test not implemented yet, please write test case.")
+    });
+
+    test('drawFrequencyAxis should correctly draw the axis in proportion to the instrument columns', () => {
+        // The axis appears to be incorrectly linked with the blob displays
+        throw new Error("Test not implemented yet, please write test case.")
+    });
 });
