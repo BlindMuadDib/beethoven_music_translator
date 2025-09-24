@@ -82,18 +82,17 @@ export class HarmonicVisualizer {
             baseSaturation: 80, // %
             baseLightness: 50, // %
             minBlobWidth: 5,
-            maxBlobWidthRatio: 1,
-            blobWidthScale: 3, // Multiplier to make blobs thicker and more visible
+            blobWidthScale: 1.5, // Multiplier to make present frequencies thicker (vertically) and more visible
             minPadding: 10, // px, padding around the drawing area
             onsetItemDecay: 100, // ms for onset flash to fade
             beatItemDecay: 100, // ms for beat square to fade
-            f0BallSizeRatio: 0.51, // F0 ball is 51% of the blob's max radius
+            f0BallSizeRatio: 0.24, // F0 ball is 24% of the blob's max radius
             f0BallColor: 'gray',
             columnGap: 2, // px between columns
             // For interpolation and mapping
             spectralRolloffMax: 10000, // Hz, an educated guess for normalization
             spectralBandwidthMax: 5000, // Hz
-            rmsMax: 1, // A guess for max RMS to normalize volume
+            rmsMax: 0.3, // A guess for max RMS to normalize volume
             tempoLinePixelsPerBeat: 150, // px
             chromaRingWidth: 10, // px
             labelFont: '14px sans-serif'
@@ -103,10 +102,20 @@ export class HarmonicVisualizer {
         this.currentTime = 0;
         this.minimizedInstruments = [];
         this.instrumentOrder = this.data.stem_analyses ? Object.keys(this.data.stem_analyses) : [];
+        this.axisDisplayMode = 'notes'; // 'notes' or 'hz'
 
         // Add a ResizeObserver to automatically handle canvas sizing and redraws.
         const resizeObserver = new ResizeObserver(() => this.resize());
         resizeObserver.observe(this.canvas);
+
+        // Add click listener to toggle frequency axis labels
+        if (this.axisContainer) {
+            this.axisContainer.style.cursor = 'pointer'; // Indicate it's clickable
+            this.axisContainer.addEventListener('click', () => {
+                this.axisDisplayMode = this.axisDisplayMode === 'notes' ? 'hz' : 'notes';
+                this.drawFrequencyAxis();
+            });
+        }
 
         // Initial drawing to set up the canvas
         this.drawFrequencyAxis();
@@ -205,6 +214,12 @@ export class HarmonicVisualizer {
      * @param {object} stemData - The analysis data for the instrument.
      */
     drawInstrumentColumn(x, width, instrumentName, stemData) {
+        // Use save/clip/restore to contain all drawing within the column bounds.
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(x, 0, width, this.canvas.height);
+        this.ctx.clip();
+
         const currentTime = this.currentTime;
         const analysisTimeMs = Math.floor(currentTime * 1000);
 
@@ -243,7 +258,7 @@ export class HarmonicVisualizer {
         const color = `hsla(${hue}, ${saturation}%, ${lightness}%, 0.8)`;
 
         // Calculate the size and position of the blob
-        const maxBlobWidth = width * this.config.maxBlobWidthRatio;
+        const maxBlobWidth = width / 2;
         const blobWidth = this.mapValueToBlobWidth(rms, maxBlobWidth);
         const centerX = x + width / 2;
         const centerY = this.canvas.height / 2;
@@ -278,10 +293,13 @@ export class HarmonicVisualizer {
         }
 
         // Draw the Chroma STFT halo
-        this.drawChromaHoops(centerX, centerY, blobWidth, chromaStft);
+        this.drawChromaHoops(centerX, centerY, width, chromaStft);
 
         // Draw the temporal effects (onsets & beats)
         this.drawTemporalEffects(centerX, width, stemData, analysisTimeMs);
+
+        // Restore the context after all column drawing is complete.
+        this.ctx.restore();
     }
 
     /**
@@ -354,11 +372,11 @@ export class HarmonicVisualizer {
      */
     drawBlob(x, radius, color, f0, spectralCentroid, spectralBandwidth, spectralFlatness, spectrogram, frequencies, mfccs) {
         // Find the y-position based on f0
-        const normalizedF0 = this.mapValueToLogNormalizedY(f0, frequencies);
+        const normalizedF0 = this.mapValueToLogNormalizedY(f0);
         const f0_y = this.canvas.height - (normalizedF0 * this.canvas.height);
 
         // Find y-position for spectral centroid
-        const normalizedCentroid = this.mapValueToLogNormalizedY(spectralCentroid, frequencies);
+        const normalizedCentroid = this.mapValueToLogNormalizedY(spectralCentroid);
         const centroid_y = this.canvas.height - (normalizedCentroid * this.canvas.height);
 
         this.ctx.beginPath();
@@ -387,7 +405,7 @@ export class HarmonicVisualizer {
      */
     drawBlobSimple(x, radius, color, spectralCentroid, spectralFlatness, spectrogram, frequencies, mfccs) {
         // Find y-position for spectral centroid
-        const normalizedCentroid = this.mapValueToLogNormalizedY(spectralCentroid, frequencies);
+        const normalizedCentroid = this.mapValueToLogNormalizedY(spectralCentroid);
         const centroid_y = this.canvas.height - (normalizedCentroid * this.canvas.height);
 
         this.ctx.beginPath();
@@ -410,9 +428,12 @@ export class HarmonicVisualizer {
      * @param {number} flatness - Spectral flatness value (0-1)
      */
     createDynamicPath(x, spectrogram, frequencies, radius, flatness) {
-        if (!Array.isArray(spectrogram) || spectrogram.length === 0) return;
+        if (!Array.isArray(spectrogram) || spectrogram.length < 2) {
+            return; // Not enough points to draw a path
+        };
 
-        const randomness = flatness * 50; // Randomness increases with flatness
+        const randomness = flatness * radius * 0.5; // Randomness increases with flatness
+        const subdivisions = flatness > 0.5 ? 4 : 1;
         const maxAmplitude = Math.max(...spectrogram) || 1;
 
         // Use a static seed for consistent jitter per time step
@@ -426,34 +447,51 @@ export class HarmonicVisualizer {
         const firstFreqY = this.canvas.height - (this.mapValueToLogNormalizedY(frequencies[0]) * this.canvas.height)
         this.ctx.moveTo(x, firstFreqY);
 
-        // Draw the left side of the blob (from bottom to top)
+        const pointsLeft = [];
+        const pointsRight = [];
+
         for (let i = 0; i < spectrogram.length; i++) {
             const freq = frequencies[i];
             const amplitude = spectrogram[i];
             const normalizedY = this.mapValueToLogNormalizedY(freq);
             const currentY = this.canvas.height - (normalizedY * this.canvas.height);
+            const amplitudeRadius = radius * (amplitude / maxAmplitude) * this.config.blobWidthScale;
 
-            const amplitudeRadius = radius * (amplitude / maxAmplitude);
             const jitter = (rand(seed + i) - 0.5) * 2 * randomness;
-            let finalRadius = (amplitudeRadius + jitter) * this.config.blobWidthScale;
-            finalRadius = Math.min(radius, finalRadius); // Clamp to maxBlobWidth
+            const finalRadius = Math.min(radius, amplitudeRadius + jitter);
 
-            this.ctx.lineTo(x - finalRadius, currentY);
+            pointsLeft.push({ x: x - finalRadius, y: currentY });
+            pointsRight.push({ x: x + finalRadius, y: currentY });
+        }
+
+        // Draw left side (bottom to top) with subdivisions
+        for (let i = 0; i < pointsLeft.length - 1; i++) {
+            const p1 = pointsLeft[i];
+            const p2 = pointsLeft[i + 1];
+            if (i === 0) this.ctx.lineTo(p1.x, p1.y);
+
+            for (let j = 1; j <= subdivisions; j++) {
+                const t = j / subdivisions;
+                const interpX = p1.x + t * (p2.x - p1.x);
+                const interpY = p1.y + t * (p2.y - p1.y);
+                const jitterX = (rand(seed + i * subdivisions + j) - 0.5) * randomness * 0.5;
+                this.ctx.lineTo(interpX + jitterX, interpY);
+            }
         }
 
         // Draw the right side of the blob (from top to bottom)
-        for (let i = spectrogram.length - 1; i >= 0; i--) {
-            const freq = frequencies[i];
-            const amplitude = spectrogram[i];
-            const normalizedY = this.mapValueToLogNormalizedY(freq);
-            const currentY = this.canvas.height - (normalizedY * this.canvas.height);
+        for (let i = pointsRight.length - 1; i > 0; i--) {
+            const p1 = pointsRight[i];
+            const p2 = pointsRight[i-1];
+            if (i === pointsRight.length - 1) this.ctx.lineTo(p1.x, p1.y);
 
-            const amplitudeRadius = radius * (amplitude / maxAmplitude);
-            const jitter = (rand(seed + i) - 0.5) * 2 * randomness;
-            let finalRadius = (amplitudeRadius + jitter) * this.config.blobWidthScale;
-            finalRadius = Math.min(radius, finalRadius); // Clamp to maxBlobWidth
-
-            this.ctx.lineTo(x + finalRadius, currentY);
+            for (let j = 1; j <= subdivisions; j++) {
+                const t = j / subdivisions;
+                const interpX = p1.x + t * (p2.x - p1.x);
+                const interpY = p1.y + t * (p2.y - p1.y);
+                const jitterX = (rand(seed + i * subdivisions + j) - 0.5) * randomness * 0.5;
+                this.ctx.lineTo(interpX + jitterX, interpY);
+            }
         }
 
     }
@@ -464,74 +502,91 @@ export class HarmonicVisualizer {
      * @param {number} y - Center y-coordinate.
      * @param {number} radius - Base radius of the texture.
      * @param {Array<number>} mfccs - The 20 MFCC coefficients.
+     * @param {Array<number} [frequencies] - Frequency bins to determine vertical spread.
      */
-    drawMfccTexture(x, y, radius, mfccs) {
-        if (!mfccs || mfccs.length < 13) return;
+    drawMfccTexture(x, y, radius, mfccs, frequencies = []) {
+        if (!mfccs || mfccs.length === 0) return;
 
         this.ctx.save();
         this.ctx.clip(); // Constrain the drawing to the blob's shape
 
         const maxMfcc = Math.max(...mfccs.map(Math.abs)) || 1;
-        const numShapes = 8 + Math.round(Math.abs(mfccs[0]) / maxMfcc * 12); // Between 8 and 20 shapes
+        const mfccLen = mfccs.length;
 
-        for (let j = 0; j < numShapes; j++) {
-            this.ctx.globalAlpha = 0.2 + (j / numShapes) * 0.3; // Fade out to create depth
+        const gridSize = 4 + Math.round((Math.abs(mfccs[0]) / maxMfcc) * 4); // Grid from 4x4 to 8x8
 
-            const shapeRadius = radius * (0.1 + Math.abs(mfccs[j % 20]) / maxMfcc * 0.8);
-            const rotation = mfccs[(j + 2) % 20] * Math.PI;
-            const offsetX = x + (mfccs[(j + 2) % 20] / maxMfcc) * (radius * 0.4);
-            const offsetY = y + (mfccs[(j + 3) % 20] / maxMfcc) * (radius * 0.4);
-            const hue = (mfccs[(j + 6) % 20] / maxMfcc) * 360;
+        // Determine the vertical and horizontal bounds for the grid
 
-            this.ctx.beginPath();
-            const shapeType = j % 4;
+        const minY = frequencies.length > 0 ? this.canvas.height - (this.mapValueToLogNormalizedY(frequencies[frequencies.length - 1]) * this.canvas.height) : y - radius;
+        const maxY = frequencies.length > 0 ? this.canvas.height - (this.mapValueToLogNormalizedY(frequencies[0]) * this.canvas.height) : y + radius;
+        const minX = x - radius;
 
-            if (shapeType !== 3) {
-                this.ctx.fillStyle = `hsla(${hue}, 80%, 70%, 0.7)`;
-            }
+        const totalWidth = radius * 2;
+        const totalHeight = maxY - minY;
+        const cellWidth = totalWidth / gridSize;
+        const cellHeight = totalHeight / gridSize;
 
-            switch (shapeType) {
-                case 0: { // Polygon
-                    const numVertices = 3 + Math.round(Math.abs(mfccs[(j + 4) % 20] / maxMfcc) * 5);
-                    for (let i = 0; i < numVertices; i++) {
-                        const angle = (Math.PI * 2 / numVertices) * i + rotation;
-                        const px = offsetX + shapeRadius * Math.cos(angle);
-                        const py = offsetY + shapeRadius * Math.sin(angle);
-                        if (i === 0) this.ctx.moveTo(px, py);
-                        else this.ctx.lineTo(px, py);
+        for (let i = 0; i < gridSize; i++) { // Grid row
+            for (let j = 0; j < gridSize; j++) { // Grid column
+                // Calculate center of the current grid cell
+                const cellX = minX + (j * cellWidth) + (cellWidth / 2);
+                const cellY = minY + (i * cellHeight) + (cellHeight / 2);
+
+                // Use grid position to pick MFCCs for deterministic randomness
+                const mfccIndex = (i * gridSize + j) % mfccLen;
+
+                const shapeRadius = Math.min(cellWidth, cellHeight) * 0.4 * (0.5 + Math.abs(mfccs[mfccIndex] / maxMfcc) * 0.5);
+                const rotation = mfccs[(mfccIndex + 1) % mfccLen];
+                const hue = (mfccs[(mfccIndex + 2) % mfccLen] / maxMfcc) * 360;
+                const opacity = 0.2 + Math.abs(mfccs[(mfccIndex + 3) % mfccLen] / maxMfcc) * 0.4;
+                this.ctx.globalAlpha = opacity;
+
+                this.ctx.beginPath();
+                const shapeType = mfccIndex % 4;
+
+                if (shapeType !== 3) {
+                    this.ctx.fillStyle = `hsla(${hue}, 80%, 70%, 0.9)`;
+                }
+
+                switch (shapeType) {
+                    case 0: { // Polygon
+                        const numVertices = 3 + Math.round(Math.abs(mfccs[(mfccIndex + 4) % mfccLen] / maxMfcc) * 5);
+                        for (let k = 0; k < numVertices; k++) {
+                            const angle = (Math.PI * 2 / numVertices) * k + rotation;
+                            const px = cellX + shapeRadius * Math.cos(angle);
+                            const py = cellY + shapeRadius * Math.sin(angle);
+                            if (i === 0) this.ctx.moveTo(px, py);
+                            else this.ctx.lineTo(px, py);
+                        }
+                        this.ctx.closePath();
+                        this.ctx.fill();
+                        break;
                     }
-                    this.ctx.closePath();
-                    this.ctx.fill();
-                    break;
-                }
-                case 1: { // Polygram (Star)
-                    const points = 3 + Math.round(Math.abs(mfccs[(j + 4) % 20] / maxMfcc) * 4);
-                    const pointiness = 0.4 + Math.abs(mfccs[( j + 5) % 20] / maxMfcc) * 0.5;
-                    this.drawPolygram(offsetX, offsetY, shapeRadius, points, pointiness, rotation);
-                    this.ctx.fill();
-                    break;
-                }
-                case 2: { // Ellipse
-                    const ellipseRx = shapeRadius;
-                    const ellipseRy = shapeRadius * (0.3 + Math.abs(mfccs[(j + 4) % 20] / maxMfcc) * 0.7);
-                    this.ctx.ellipse(offsetX, offsetY, ellipseRx, ellipseRy, rotation, 0, Math.PI * 2);
-                    this.ctx.fill();
-                    break;
-                }
-                case 3: { // Line
-                    const endX = offsetX + Math.cos(rotation) * shapeRadius * 2;
-                    const endY = offsetY + Math.sin(rotation) * shapeRadius * 2;
-                    this.ctx.moveTo(offsetX - (endX - offsetX), offsetY - (endY - offsetY));
-                    this.ctx.lineTo(endX, endY);
-                    this.ctx.lineWidth = 1 + Math.abs(mfccs[(j + 4) % 20] / maxMfcc) * 4;
-                    const hue = (mfccs[(j + 6) % 20] / maxMfcc) * 360;
-                    this.ctx.strokeStyle = `hsla(${hue}, 80%, 70%, 0.7)`;
-                    this.ctx.stroke();
-                    break;
+                    case 1: { // Polygram (Star)
+                        const points = 3 + Math.round(Math.abs(mfccs[(mfccIndex + 4) % mfccLen] / maxMfcc) * 4);
+                        const pointiness = 0.4 + Math.abs(mfccs[(mfccIndex + 5) % mfccLen] / maxMfcc) * 0.5;
+                        this.drawPolygram(cellX, cellY, shapeRadius, points, pointiness, rotation);
+                        this.ctx.fill();
+                        break;
+                    }
+                    case 2: { // Ellipse
+                        const ellipseRx = shapeRadius;
+                        const ellipseRy = shapeRadius * (0.3 + Math.abs(mfccs[(mfccIndex + 4) % mfccLen] / maxMfcc) * 0.7);
+                        this.ctx.ellipse(cellX, cellY, ellipseRx, ellipseRy, rotation, 0, Math.PI * 2);
+                        this.ctx.fill();
+                        break;
+                    }
+                    case 3: { // Line
+                        this.ctx.moveTo(cellX - Math.cos(rotation) * shapeRadius, cellY - Math.sin(rotation) * shapeRadius);
+                        this.ctx.lineTo(cellX + Math.cos(rotation) * shapeRadius, cellY + Math.sin(rotation) * shapeRadius);
+                        this.ctx.lineWidth = 1 + Math.abs(mfccs[(mfccIndex + 4) % mfccLen] / maxMfcc) * 4;
+                        this.ctx.strokeStyle = `hsla(${hue}, 80%, 70%, 0.7)`;
+                        this.ctx.stroke();
+                        break;
+                    }
                 }
             }
         }
-
         this.ctx.restore();
     }
 
@@ -562,20 +617,27 @@ export class HarmonicVisualizer {
      * Draws a 12-segment ring around the blob for chroma STFT visualization.
      * @param {number} x - Center x-coordinate.
      * @param {number} y - Center y-coordinate.
-     * @param {number} blobWidth - The width of the blob (inner ring).
+     * @param {number} columnWidth - The width of the column (inner ring).
      * @param {Array<number>} chromaStft - The 12-element chroma vector.
      */
-    drawChromaHoops(x, y, blobWidth, chromaStft) {
+    drawChromaHoops(x, y, columnWidth, chromaStft) {
         if (!chromaStft || chromaStft.length !== 12) return;
 
-        const hoopRadiusX = blobWidth + this.config.chromaRingWidth; // Ellipse width
+        // Find the maximum chroma value in the current frame (often 1.0)
+        const maxChromaValue = Math.max(...chromaStft);
+
+        // Set a relative threshold, e.g., only show hoops that are at least
+        // 50% of the maximum value in this frame. Adjust as needed
+        const relativeThreshold = maxChromaValue * 0.6;
+
+        const hoopRadiusX = columnWidth / 2; // Ellipse width
         const hoopRadiusY = 8; // Ellipse height (constant for 3D effect)
         const availableHeight = this.canvas.height * 0.8;
         const verticalSpacing = availableHeight / 12; // Space between hoops
 
         for (let i = 0; i < 12; i++) {
             const chromaValue = chromaStft[i];
-            if (chromaValue < 0.1) continue; // Don't draw faint hoops
+            if (chromaValue < relativeThreshold) continue; // Don't draw faint hoops
 
             // Distribute hoops vertically around the center
             const hoopY = (this.canvas.height / 2) + (i - 5.5) * verticalSpacing;
@@ -643,7 +705,6 @@ export class HarmonicVisualizer {
      * @param {number} tempo - The tempo in BPM.
      */
     drawTempoLines(columnX, columnWidth, tempo) {
-        this.ctx.save();
         const beatsPerSecond = tempo / 60;
         const timePerBeat = 1 / beatsPerSecond;
         const pixelsPerBeat = this.config.tempoLinePixelsPerBeat;
@@ -653,13 +714,13 @@ export class HarmonicVisualizer {
         this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         this.ctx.lineWidth = 1;
 
+        // This loop should be clipped by the restore() call in drawInstrumentColumn
         for (let x = columnX - scrollOffset; x < columnX + columnWidth; x += pixelsPerBeat) {
             this.ctx.beginPath();
             this.ctx.moveTo(x, 0);
             this.ctx.lineTo(x, this.canvas.height);
             this.ctx.stroke();
         }
-        this.ctx.restore();
     }
 
     /**
@@ -686,7 +747,17 @@ export class HarmonicVisualizer {
             const yPos = (1 - normalizedY) * 100; // a percentage from the top
 
             const labelEl = document.createElement('div');
-            labelEl.textContent = labels[i];
+
+            // Use axisDisplayMode to toggle between note names and Hz.
+            if (this.axisDisplayMode === 'notes') {
+                labelEl.textContent = labels[i];
+            } else {
+                labelEl.textContent = `${freq.toFixed(2)} Hz`;
+                // Right-align Hz text to prevent it from overflowing the container on the left
+                labelEl.style.textAlign = 'right';
+                labelEl.style.width = '100%'; // Ensure it takes up container width for alignment
+            }
+
             labelEl.style.position = 'absolute';
             labelEl.style.top = `${yPos}%`;
             labelEl.style.right = '5px'; // Position inside the axis container
