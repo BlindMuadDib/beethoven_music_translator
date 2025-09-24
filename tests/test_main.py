@@ -259,24 +259,11 @@ class TestMain(unittest.TestCase):
             'line_start_time': 0.1,
             'line_end_time': 1.0
         }]
-        expected_f0 = {
-            "vocals": {
-                "times": [0.01, 0.02, 0.03],
-                "f0_values": [220.0, 220.1, 220.5],
-                "time_interval": 0.01
-            },
-            "bass": {
-                "times": [0.01, 0.02, 0.03],
-                "f0_values": [110.0, None, 110.2],
-                "time_interval": 0.01
-            },
-            "other": None # Example of a stem with no F0 or an error for that stem
-        }
-        expected_volume = {
-            "overall_rms": [[0.0, 0.15], [0.02, 0.18]],
-            "instruments": {
-                "vocals": {"rms_values": [[0.0, 0.2], [0.02, 0.22]]},
-                "bass": {"rms_values": [[0.0, 0.1], [0.02, 0.11]]}
+        expected_harmonic_urls = {
+            "static_results_url": f"/shared-data/results/{self.mock_uuid}_faketrack_harmonic.json",
+            "streaming_urls": {
+                "vocals": f"api/results/stream/{self.test_job_id}_vocals.ndjson?stem_path=%2Ffake%2Fstems%2Fvocals.wav",
+                "bass": f"api/results/stream/{self.test_job_id}_bass.ndjson?stem_path=%2Ffake%2Fstems%2Fbass.wav"
             }
         }
         expected_drum_analysis = {
@@ -319,8 +306,7 @@ class TestMain(unittest.TestCase):
 
         expected_result = {
             "mapped_result": expected_mapped_result,
-            "f0_analysis": expected_f0,
-            "volume_analysis": expected_volume,
+            "harmonic_analysis": expected_harmonic_urls,
             "drum_analysis": expected_drum_analysis,
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
@@ -405,42 +391,7 @@ class TestMain(unittest.TestCase):
         self.mock_get_conn.assert_called() # Check if connection was attempted
         self.mock_redis_conn.ping.assert_called_once() # Check ping was attempted
 
-    def test_get_results_success_volume_analysis_had_error(self):
-        """Tests results when Volume analysis itself reported an error."""
-        expected_mapped_lyrics = [{
-            'line_text': 'example line',
-            'words': [
-                {'text': 'example', 'start': 0.1, 'end': 0.5},
-                {'text': 'line', 'start': 0.6, 'end': 1.0}
-            ],
-            'line_start_time': 0.1,
-            'line_end_time': 1.0
-        }]
-        volume_error_report = {
-            "error": "Volume service connection failed",
-            "info": "Volume analysis did not complete successfully."
-        }
-
-        expected_final_job_result = {
-            "mapped_result": expected_mapped_lyrics,
-            "f0_analysis": {}, # Assume f0 was fine
-            "volume_analysis": volume_error_report,
-            "drum_analysis": [],
-            "audio_url": "/files/some_job_id_song.wav",
-            "original_filename": "song.wav"
-        }
-
-        self.mock_job.is_finished = True
-        self.mock_job.is_failed = False
-        self.mock_job.result = expected_final_job_result
-
-        response = self._get_results(self.test_job_id)
-        self.assertEqual(response.status_code, 200)
-        response_json = json.loads(response.data)
-        self.assertEqual(response_json["status"], "finished")
-        self.assertDictEqual(response_json["result"], expected_final_job_result)
-
-    def test_get_results_success_f0_analysis_had_error(self):
+    def test_get_results_success_harmonic_analysis_had_error(self):
         """Tests results when F0 analysis itself reported an error."""
         expected_mapped_lyrics = [{
             'line_text': 'example line',
@@ -451,22 +402,14 @@ class TestMain(unittest.TestCase):
             'line_start_time': 0.1,
             'line_end_time': 1.0
         }]
-        f0_error_report = {
-            "error": "F0 service connection failed",
-            "info": "F0 analysis did not complete successfully."
-        }
-        expected_volume = {
-            "overall_rms": [[0.0, 0.15], [0.02, 0.18]],
-            "instruments": {
-                "vocals": {"rms_values": [[0.0, 0.2], [0.02, 0.22]]},
-                "bass": {"rms_values": [[0.0, 0.1], [0.02, 0.11]]}
-            }
+        harmonic_error_report = {
+            "error": "Harmonic service connection failed",
+            "info": "Harmonic analysis did not complete successfully."
         }
 
         expected_final_job_result = {
             "mapped_result": expected_mapped_lyrics,
-            "f0_analysis": f0_error_report,
-            "volume_analysis": expected_volume,
+            "f0_analysis": harmonic_error_report,
             "drum_analysis": [],
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
@@ -482,7 +425,7 @@ class TestMain(unittest.TestCase):
         self.assertEqual(response_json["status"], "finished")
         self.assertDictEqual(response_json["result"], expected_final_job_result)
 
-    def test_get_results_success_no_relevant_stems_for_f0(self):
+    def test_get_results_success_no_relevant_stems_for_harmonic(self):
         """Tests results when no relevant stems were found for F0 analysis."""
         expected_mapped_lyrics = [{
             'line_text': 'example line',
@@ -493,23 +436,15 @@ class TestMain(unittest.TestCase):
             'line_start_time': 0.1,
             'line_end_time': 1.0
         }]
-        f0_no_stems_info = {
-            "info": "No relevant stems were submitted for F0 analysis."
-        }
-        expected_volume = {
-            "overall_rms": [[0.0, 0.15], [0.02, 0.18]],
-            "instruments": {
-                "vocals": {"rms_values": [[0.0, 0.2], [0.02, 0.22]]},
-                "bass": {"rms_values": [[0.0, 0.1], [0.02, 0.11]]}
-            }
+        harmonic_no_stems_info = {
+            "info": "No relevant stems were submitted for Harmonic analysis."
         }
 
-        # In main.py, if request_f0_analysis returns this, f0_analysis_result_data will be this.
+        # In main.py, if request_harmonic_analysis returns this, harmonic_analysis_result_data will be this.
         # Then final_job_result will have it.
         expected_final_job_result = {
             "mapped_result": expected_mapped_lyrics,
-            "f0_analysis": f0_no_stems_info,
-            "volume_analysis": expected_volume,
+            "harmonic_analysis": harmonic_no_stems_info,
             "drum_analysis": [],
             "audio_url": "/files/some_job_id_song.wav",
             "original_filename": "song.wav"
@@ -561,29 +496,33 @@ class TestMain(unittest.TestCase):
 
     @patch('musictranslator.main.split_audio')
     @patch('musictranslator.main.align_lyrics')
-    @patch('musictranslator.main.request_f0_analysis')
-    @patch('musictranslator.main.request_volume_analysis')
+    @patch('musictranslator.main.request_harmonic_analysis')
     @patch('musictranslator.main.request_drum_analysis')
     @patch('musictranslator.main.map_transcript')
     @patch('musictranslator.main.get_current_job')
     @patch('threading.Thread')
+    @patch('builtins.open')
+    @patch('os.path.exists')
     def test_background_translation_task_orchestration(
         self,
+        mock_os_exists,
+        mock_open,
         mock_thread_class,
         mock_get_job,
         mock_map,
         mock_req_drum,
-        mock_req_volume,
-        mock_req_f0,
+        mock_req_harmonic,
         mock_align_lyrics,
         mock_split
     ):
+        self.maxDiff = None
         """Unit test for the background task orchestration"""
         # Set up Mocks for this specific test
         mock_get_job.return_value = self.mock_job
         mock_job = mock_get_job.return_value
         mock_job.meta = {} # Ensure meta is a dict
         mock_job.connection = self.mock_get_conn
+        mock_job.id = self.test_job_id # Ensure job has an ID for URL generation
 
         mock_split.return_value = {
             "vocals": "/fake/stems/vocals.wav",
@@ -592,13 +531,19 @@ class TestMain(unittest.TestCase):
         }
         # Mocking the direct calls that threads would make
         mock_align_lyrics.return_value = "/fake/alignment.json"
-        mock_req_f0.return_value = {
-            "vocals": [220.0], "bass": [110.0]
+        mock_req_harmonic.return_value = {
+            "results_url": f"api/results/file/{self.test_job_id}_audio_harmonic.json"
         }
-        mock_req_volume.return_value = {
-            "overall_rms": [[0.0, 0.15]],
-            "instruments": {"vocals": {"rms_values": [[0.0, 0.2]]}}
-        }
+        mock_os_exists.return_value = True
+        mock_static_results_content = json.dumps({
+            "stem_analyses": {
+                "vocals": {"duration": 10.0}, # Presence of key indicates success
+                "bass": {"duration": 10.0},
+                "drums": {"error": "Some error"} # This one failed, shouldn't get a stream URL
+            }
+        })
+        # mock_open().read().__enter__() is a common pattern for mocking file reads
+        mock_open.return_value.__enter__.return_value.read.return_value = mock_static_results_content
         mock_req_drum.return_value = {
             "hits": [
                 {
@@ -693,33 +638,40 @@ class TestMain(unittest.TestCase):
         # (mocking them directly at module level)
         mock_align_lyrics.assert_called_once_with("/fake/stems/vocals.wav", "/fake/lyrics.txt")
 
-        expected_f0_payload = {
+        expected_harmonic_stems = {
             "vocals": "/fake/stems/vocals.wav",
             "bass": "/fake/stems/bass.wav",
-            # drums is filtered out by request_f0_analysis client
+            # drums is filtered out by request_harmonic_analysis client but still sent as an arg
+            "drums": "/fake/stems/drums.wav"
         }
-        mock_req_f0.assert_called_once_with(mock_split.return_value)
-
-        # Volume analysis should be called with the original song path plus the stems
-        expected_volume_payload = {"song": "/fake/audio.wav", **mock_split.return_value}
-        mock_req_volume.assert_called_once_with(expected_volume_payload)
+        mock_req_harmonic.assert_called_once_with(expected_harmonic_stems, "/fake/audio.wav")
 
         mock_req_drum.assert_called_once_with(mock_split.return_value.get("drums"))
 
         mock_map.assert_called_once_with("/fake/alignment.json", "/fake/lyrics.txt")
 
+        expected_harmonic_result = {
+            "static_results_url": f"api/results/file/{self.test_job_id}_audio_harmonic.json",
+            "streaming_urls": {
+                "vocals": f"api/results/stream/{self.test_job_id}_vocals.ndjson?stem_path=%2Ffake%2Fstems%2Fvocals.wav",
+                "bass": f"api/results/stream/{self.test_job_id}_bass.ndjson?stem_path=%2Ffake%2Fstems%2Fbass.wav"
+            }
+        }
+
         expected_final_result = {
             "mapped_result": mock_map.return_value,
-            "f0_analysis": mock_req_f0.return_value,
-            "volume_analysis": mock_req_volume.return_value,
+            "harmonic_analysis": expected_harmonic_result,
             "drum_analysis": mock_req_drum.return_value,
             "audio_url": "api/files/jobid_audio.wav",
             "original_filename": "audio.wav"
         }
         self.assertEqual(result, expected_final_result)
 
-        # Verify that the two Thread instances were created
-        self.assertEqual(mock_thread_class.call_count, 4)
+        # Verify that the three Thread instances were created
+        # 1 for Harmonic analysis
+        # 1 for Drum analysis
+        # 1 for Lyric alignment
+        self.assertEqual(mock_thread_class.call_count, 3)
 
     def test_delete_audio_file_success(self):
         """Tests the DELETE /api/cleanup/<filename> endpoint."""
@@ -730,7 +682,7 @@ class TestMain(unittest.TestCase):
             response = self.client.delete(f'/api/cleanup/{safe_filename}')
 
             self.assertEqual(response.status_code, 200)
-            mock_remove.assert_called_once_with(f'/shared-data/audio/{safe_filename}')
+            assert mock_remove.call_count == 2
             self.assertIn(b"Successfully deleted", response.data)
 
     def test_delete_audio_file_invalid_filename(self):

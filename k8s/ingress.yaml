@@ -6,7 +6,7 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-body-size: "60m"
     nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
 spec:
@@ -15,6 +15,13 @@ spec:
   - host: musictranslator.org
     http:
       paths:
+      - path: /api/harmonic
+        pathType: Prefix
+        backend:
+          service:
+            name: harmonic-service
+            port:
+              number: 20006
       - path: /api/files
         pathType: Prefix
         backend:

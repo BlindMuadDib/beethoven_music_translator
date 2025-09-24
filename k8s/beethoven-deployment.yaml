@@ -26,11 +26,14 @@ spec:
               memory: "256Mi"
             limits:
               cpu: "500m"
-              memory: "2Gi"
+              memory: "1Gi"
           volumeMounts:
             - name: shared-data
               mountPath: /shared-data/audio
               subPath: audio
+            - name: shared-data
+              mountPath: /shared-data/results
+              subPath: results
       volumes:
         - name: shared-data
           persistentVolumeClaim:

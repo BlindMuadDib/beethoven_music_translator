@@ -1,0 +1,6 @@
+Flask
+librosa
+numba
+soundfile
+matplotlib
+gunicorn

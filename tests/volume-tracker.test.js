@@ -2,14 +2,21 @@ import { jest, describe, test, expect, beforeEach } from '@jest/globals';
 import { VolumeTracker } from '../www/js/player/volume-tracker.js';
 
 describe('VolumeTracker (Overall RMS)', () => {
-    let canvas, ctx, overallRmsData;
+    let canvas, ctx, mockFullTrackAnalysisData;
 
     beforeEach(() => {
         // Set up the DOM with a canvas element
         document.body.innerHTML = '<canvas id="overall-volume-canvas" width="100" height="400"></canvas>';
         canvas = document.getElementById('overall-volume-canvas');
         ctx = canvas.getContext('2d');
-        overallRmsData = [[0.0, 0.1], [0.1, 0.5], [0.2, 0.2]]; //min: 0.1, max: 0.5
+        mockFullTrackAnalysisData = {
+            duration: 10,
+            tempo: 120,
+            rms_overall: {
+                times: [0.0, 0.1, 0.2],
+                values: [0.1, 0.5, 0.2]
+            }
+        };
     });
 
     test('constructor should initialize correctly', () => {
@@ -20,7 +27,7 @@ describe('VolumeTracker (Overall RMS)', () => {
 
     test('setData should process and normalize only overall_rms data', () => {
         const tracker = new VolumeTracker('overall-volume-canvas');
-        tracker.setData(overallRmsData);
+        tracker.setData(mockFullTrackAnalysisData);
 
         expect(tracker.normalizedData).not.toBeNull();
         expect(tracker.normalizedData.values.length).toBe(3);
@@ -32,7 +39,7 @@ describe('VolumeTracker (Overall RMS)', () => {
 
     test('update should call draw with the correct interpolated volume level', () => {
         const tracker = new VolumeTracker('overall-volume-canvas');
-        tracker.setData(overallRmsData);
+        tracker.setData(mockFullTrackAnalysisData);
         const drawSpy = jest.spyOn(tracker, 'draw');
 
         tracker.update(0.15); // Time between 2nd and 3rd points

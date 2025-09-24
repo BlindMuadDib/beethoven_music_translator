@@ -2,31 +2,40 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: f0-deployment
+  name: harmonic-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: f0-client
+      app: harmonic-client
   template:
     metadata:
       labels:
-        app: f0-client
+        app: harmonic-client
     spec:
       containers:
-        - name: f0-client-container
-          image: docker.io/blindmuaddib/f0-endpoint:1.2
+        - name: harmonic-client-container
+          image: docker.io/blindmuaddib/harmonic-endpoint:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 20006
+          env:
+            - name: HARMONIC_CPU_WORKERS
+              value: "2"
           resources:
             requests:
-              cpu: "2"
-              memory: "6Gi"
-            limits:
               cpu: "4"
               memory: "16Gi"
+            limits:
+              cpu: "6"
+              memory: "32Gi"
           volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data/results
+              subPath: results
+            - name: shared-data
+              mountPath: /shared-data/audio
+              subPath: audio
             - name: shared-data
               mountPath: /shared-data/separator_output
               subPath: separator_output
