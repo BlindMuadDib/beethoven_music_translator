@@ -1,0 +1,11 @@
+Flask>=3.0.0
+Flask-SQLAlchemy>=2.5
+Flask-Security>=5.0
+email-validator>=1.1
+passlib>=1.7
+authlib
+qrcode
+argon2-cffi
+oauthlib>=3.0.0
+gunicorn
+requests
