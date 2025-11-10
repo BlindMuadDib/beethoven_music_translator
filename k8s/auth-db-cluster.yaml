@@ -1,0 +1,28 @@
+---
+apiVersion: "acid.zalan.do/v1"
+kind: postgresql
+metadata:
+  name: auth-db-cluster
+  namespace: zalando
+spec:
+  teamId: "music-translator"
+  volume:
+    size: "10Gi"
+    storageClass: rook-ceph-block
+  numberOfInstances: 1
+  users:
+    # This is the 'owner' user for the database
+    # The operator will create a secret: auth-db-cluster.translator-admin.credentials
+    translator-admin:
+    - superuser
+    - createdb
+  databases:
+    # This creates a database named 'auth_db' owned by 'translator_admin'
+    auth_db: translator-admin
+  postgresql:
+    version: "17"
+    parameters:
+      ssl: "off"
+  patroni:
+    pg_hba:
+      - hostnossl auth_db translator-admin 10.0.0.0/8 md5

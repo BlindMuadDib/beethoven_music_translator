@@ -1,0 +1,47 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: musictranslator-ingress
+  annotations:
+    ingress.cilium.io/proxy-max-request-size: "60m"
+    ingress.cilium.io/redirect-from-www: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: musictranslator.org
+    http:
+      paths:
+      - path: /api/harmonic
+        pathType: Prefix
+        backend:
+          service:
+            name: harmonic-service
+            port:
+              number: 20006
+      - path: /api/files
+        pathType: Prefix
+        backend:
+          service:
+            name: translator-service
+            port:
+              number: 20005
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: translator-service
+            port:
+              number: 20005
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: beethoven-service
+            port:
+              number: 80
+  tls:
+  - hosts:
+      - musictranslator.org
+      - www.musictranslator.org
+    secretName: tls-cert

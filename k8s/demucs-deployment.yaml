@@ -1,0 +1,52 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demucs-deployment
+  labels:
+    app: demucs-wrapper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demucs-wrapper
+  template:
+    metadata:
+      labels:
+        app: demucs-wrapper
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      containers:
+        - name: demucs-container
+          image: docker.io/blindmuaddib/separate-endpoint:1.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 22227
+          readinessProbe:
+            httpGet:
+              path: /api/separate/health
+              port: 22227
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/separate/health
+              port: 22227
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+            limits:
+              cpu: "12"
+              memory: "12Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

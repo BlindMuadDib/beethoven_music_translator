@@ -1,0 +1,57 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: translator-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: translator
+  template:
+    metadata:
+      labels:
+        app: translator
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      containers:
+        - name: music-translator-container
+          image: docker.io/blindmuaddib/music-translator:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 20005
+          readinessProbe:
+            httpGet:
+              path: /api/translate/health
+              port: 20005
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/translate/health
+              port: 20005
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          env:
+            - name: REDIS_HOST
+              value: "redis-service"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: AUTH_SERVICE_URL
+              value: "http://auth-service:8443"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "1Gi"
+            limits:
+              cpu: "1.5"
+              memory: "10Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

@@ -1,0 +1,56 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mfa-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mfa-wrapper
+  template:
+    metadata:
+      labels:
+        app: mfa-wrapper
+    spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+        seccompProfile:
+          type: Unconfined
+      containers:
+        - name: mfa-wrapper-container
+          image: docker.io/blindmuaddib/align-endpoint:1.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 24725
+          readinessProbe:
+            httpGet:
+              path: /api/align/health
+              port: 24725
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/align/health
+              port: 24725
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "2Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

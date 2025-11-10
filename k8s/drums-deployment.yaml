@@ -1,0 +1,59 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drums-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drums-client
+  template:
+    metadata:
+      labels:
+        app: drums-client
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      containers:
+        - name: drums-client-container
+          image: docker.io/blindmuaddib/drums-endpoint:1.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 25941
+          readinessProbe:
+            httpGet:
+              path: /drums/health
+              port: 25941
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /drums/health
+              port: 25941
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          env:
+            - name: DRUMS_CPU_WORKERS
+              value: "1"
+          resources:
+            requests:
+              cpu: "1"
+              memory: "8Gi"
+            limits:
+              cpu: "6"
+              memory: "12Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+
+
