@@ -1,0 +1,31 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: musictranslator-auth-ingress
+  annotations:
+    # Use regex for path matching
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # Rewrite the path for the backend service: (e.g., /auth/login -> /login)
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # While the following rule may be required for front-end login, it breaks the server
+    # nginx.ingress.kubernetes.io/configuration-snippet: |
+    #   proxy_set_header X-Forwarded-Prefix /auth;
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: musictranslator.org
+    http:
+      paths:
+      - path: /auth(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 45769
+  tls:
+  - hosts:
+    - musictranslator.org
+    - www.musictranslator.org
+    secretName: tls-cert

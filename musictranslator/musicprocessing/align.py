@@ -26,10 +26,10 @@ def align_lyrics(vocals_stem_path, lyrics_path):
 
         if response.status_code == 200:
             alignment_data = response.json()
-            if 'alignment_file_path' in alignment_data:
-                return alignment_data['alignment_file_path']
+            if 'alignment_file_path' in alignment_data and 'job_dir_path' in alignment_data:
+                return alignment_data
             else:
-                return {"error": "MFA successful response missing 'alignment_file_path'"}
+                return {"error": "MFA successful response missing 'alignment_file_path' or 'job_dir_path'"}
         return {"error": f"MFA alignment failed: {response.text}"}
 
     except requests.exceptions.RequestException as e:

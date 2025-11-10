@@ -9,52 +9,53 @@ import tempfile
 import shutil
 import unittest
 import uuid
+import requests
 import redis
 import rq
 from unittest.mock import patch, MagicMock
 from musictranslator import main
 from musictranslator.main import app
 
-ACCESS_CODE = ''
-mock_valid_codes = {ACCESS_CODE}
-
 class TestMain(unittest.TestCase):
     """Testing suite"""
     def setUp(self):
         """Sets up a Flask test client and creates a temporary directory"""
-        # Patch valid access codes *before* app context is used heavily
-        self.access_patcher = patch('musictranslator.main.VALID_ACCESS_CODES', mock_valid_codes)
-        self.access_patcher.start()
-
-        # Patch Redis/RQ components
+        # --- Mock External Dependencies ---
         self.mock_redis_conn = MagicMock(spec=redis.Redis)
         self.mock_redis_conn.ping.return_value = True
-
         self.mock_job = MagicMock(spec=rq.job.Job)
         self.mock_queue = MagicMock(spec=rq.Queue)
+        self.test_job_id = str(uuid.uuid4())
 
-        # Patch the functions that return connections/queues
+        # --- Patching ---
+        # Patch connections/queues
         self.patch_get_conn = patch('musictranslator.main.get_redis_connection', return_value=self.mock_redis_conn)
         self.patch_get_queue = patch('musictranslator.main.get_translation_queue', return_value=self.mock_queue)
         self.patch_job_fetch = patch('rq.job.Job.fetch', return_value=self.mock_job)
 
-        # Patch uuid to control job IDs
-        self.test_job_id = str(uuid.uuid4())
-        self.patch_uuid = patch('uuid.uuid4', return_value=self.test_job_id)
+        # Patch auth service communication
+        self.patch_is_access_valid = patch('musictranslator.main.is_access_valid',
+                                           return_value=False) # Default to fail
+        self.patch_is_session_valid = patch('musictranslator.main.is_session_valid',
+                                            return_value=True) # Default to succeed for session test
 
+        # Patch helpers
+        self.patch_uuid = patch('uuid.uuid4', return_value=self.test_job_id)
         # Patch file validation to avoid dependency on external tools/libs in most tests
         self.patch_validate_audio = patch('musictranslator.main.validate_audio', return_value=True)
         self.patch_validate_text = patch('musictranslator.main.validate_text', return_value=True)
-
         # Patch os.remove and shutil.rmtree to avoid errors during cleanup mocking
         self.patch_os_remove = patch('os.remove')
         self.patch_shutil_rmtree = patch('shutil.rmtree')
         # Patch os.path.exists used in cleanup
         self.patch_os_path_exists = patch('os.path.exists', return_value=True)
 
+        # --- Start Patchers ---
         self.mock_get_conn = self.patch_get_conn.start()
         self.mock_get_queue = self.patch_get_queue.start()
         self.mock_job_fetch = self.patch_job_fetch.start()
+        self.mock_is_access_valid = self.patch_is_access_valid.start()
+        self.mock_is_session_valid = self.patch_is_session_valid.start()
         self.mock_uuid = self.patch_uuid.start()
         self.mock_validate_audio = self.patch_validate_audio.start()
         self.mock_validate_text = self.patch_validate_text.start()
@@ -62,13 +63,14 @@ class TestMain(unittest.TestCase):
         self.mock_shutil_rmtree = self.patch_shutil_rmtree.start()
         self.mock_os_path_exists = self.patch_os_path_exists.start()
 
+        # --- Flask App Setup ---
         app.config['TESTING'] = True
         self.app_context = app.app_context()
         self.app_context.push()
         self.client = app.test_client()
         self.temp_dir = tempfile.mkdtemp()
 
-        # Create minimal valid files for tests that need them
+        # --- File Setup ---
         self.test_audio_fd, self.test_audio_full_path = tempfile.mkstemp(suffix=".wav", dir=self.temp_dir)
         self.test_lyrics_fd, self.test_lyrics_full_path = tempfile.mkstemp(suffix=".txt", dir=self.temp_dir)
 
@@ -93,7 +95,7 @@ class TestMain(unittest.TestCase):
         with open(self.test_lyrics_full_path, 'w') as f:
             f.write('This is a test lyrics file.')
 
-        # Mock the enqueue method to return our mock job
+        # --- Mock RQ Job Setup ---
         self.mock_queue.enqueue.return_value = self.mock_job
         # Set the job id on the mock job itself
         self.mock_job.id = self.test_job_id
@@ -113,22 +115,14 @@ class TestMain(unittest.TestCase):
         shutil.rmtree(self.temp_dir) # Clean up temp files
 
         # Stop all patchers
-        self.patch_get_conn.stop()
-        self.patch_get_queue.stop()
-        self.patch_job_fetch.stop()
-        self.patch_uuid.stop()
-        self.patch_validate_audio.stop()
-        self.patch_validate_text.stop()
-        self.patch_os_remove.stop()
-        self.patch_shutil_rmtree.stop()
-        self.patch_os_path_exists.stop()
-        self.access_patcher.stop()
+        patch.stopall()
+
         if self.app_context:
             self.app_context.pop()
 
 
     # --- Helper Methods ---
-    def _post_translate(self, audio_filename='test_audio.wav', lyrics_filename='test_lyrics.txt', access_code=ACCESS_CODE):
+    def _post_translate(self, audio_filename='test_audio.wav', lyrics_filename='test_lyrics.txt', access_code="VALID_CODE"):
         """Helper to post to the translate endpoint."""
         headers = {}
         if access_code:
@@ -147,19 +141,21 @@ class TestMain(unittest.TestCase):
         return self.client.get(f'/api/results/{job_id}')
 
     # --- Test Cases ---
-
     def test_translate_enqueue_success(self):
-        """Tests the /translate endpoint successfully enqueues a job."""
+        """Tests /translate endpoint successfully enqueues a job with a valid access_code."""
         # Reset mocks for specific valdation if needed, otherwise defaults are fine
+        self.mock_is_access_valid.return_value = True
+        self.mock_is_session_valid.return_value = False # Ensure session check fails
         self.mock_validate_audio.return_value = True
         self.mock_validate_text.return_value = True
 
         # Patch save method to avoid actual file saving issues in test environment
         with patch('werkzeug.datastructures.FileStorage.save') as mock_save:
-            response = self._post_translate()
+            response = self._post_translate(access_code="any-valid-code")
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(json.loads(response.data), {'job_id': self.test_job_id})
+        self.mock_is_access_valid.assert_called_once_with("any-valid-code")
         self.mock_get_queue.assert_called_once() # Ensure queue was requested
         # Check if save was called twice (for audio and lyrics)
         self.assertEqual(mock_save.call_count, 2)
@@ -180,24 +176,53 @@ class TestMain(unittest.TestCase):
 
         self.assertEqual(kwargs.get('job_id'), self.test_job_id)
 
+    def test_translator_enqueue_success_for_logged_in_user(self):
+        """
+        Tests that a logged-in user (simulated by a session cookie) can bypass
+        access code check.
+        """
+        # For this test, session is valid, access code is not.
+        self.mock_is_session_valid.return_value = True
+        self.mock_is_access_valid.return_value = False
+
+        with patch('werkzeug.datastructures.FileStorage.save') as mock_save:
+            # We don't send an access code, but we add a session cookie
+            with self.client as c:
+                c.set_cookie('session', 'some-session-token')
+                response = c.post('/api/translate', data={
+                    'audio': (open(self.test_audio_full_path, 'rb'), 'test.wav'),
+                    'lyrics': (open(self.test_lyrics_full_path, 'rb'), 'test.txt')
+                }, content_type='multipart/form-data')
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(json.loads(response.data),
+                         {'job_id': self.test_job_id})
+        # The key assertions: session was checked, access code was not
+        self.mock_is_session_valid.assert_called_once_with('some-session-token')
+        self.mock_is_access_valid.assert_not_called()
+        self.mock_queue.enqueue.assert_called_once()
+
     def test_translate_missing_audio(self):
         """Tests /translate with missing audio file"""
+        self.mock_is_access_valid.return_value = True
         with open(self.test_lyrics_full_path, 'rb') as lyrics_file:
             data = {'lyrics': (lyrics_file, 'test_lyrics.txt')}
-            response = self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
+            response = self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': "any-valid-code"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.data), {'error': 'Missing audio or lyrics file.'})
 
     def test_translate_missing_lyrics(self):
         """Tests the /translate endpoint when lyrics file is missing"""
+        self.mock_is_access_valid.return_value = True
         with open(self.test_audio_full_path, 'rb') as audio_file:
             data = {'audio': (audio_file, 'test_audio.wav')}
-            response = self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': ACCESS_CODE})
+            response = self.client.post('/api/translate', data=data, content_type='multipart/form-data', headers={'X-Access-Code': "any-valid-code"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.data), {'error': 'Missing audio or lyrics file.'})
 
     def test_translate_invalid_audio_type(self):
         """Tests /translate with invalid audio file type"""
+        self.mock_is_access_valid.return_value = True
         # Make validate_audio return False
         self.mock_validate_audio.return_value = False
         self.mock_validate_text.return_value = True
@@ -212,6 +237,7 @@ class TestMain(unittest.TestCase):
 
     def test_translate_invalid_lyrics_type(self):
         """Tests /translate with invalid lyrics file type (validation fails)."""
+        self.mock_is_access_valid.return_value = True
         # Make validate_text return False
         self.mock_validate_audio.return_value = True # Ensure audio validation passes
         self.mock_validate_text.return_value = False
@@ -226,15 +252,20 @@ class TestMain(unittest.TestCase):
 
     def test_translate_no_access_code(self):
         """Tests /translate without providing an access code."""
+        self.mock_is_access_valid.return_value = False
         response = self._post_translate(access_code=None)
         self.assertEqual(response.status_code, 401)
         self.assertEqual(json.loads(response.data), {"error": "Access Denied. Please provide a valid access code."})
+        # is_access_valid is called with None
+        self.mock_is_access_valid.assert_called_once_with(None)
 
     def test_translate_invalid_access_code(self):
         """Tests /translate with an invalid access code."""
+        self.mock_is_access_valid.return_value = False
         response = self._post_translate(access_code="WRONG_CODE")
         self.assertEqual(response.status_code, 401)
         self.assertEqual(json.loads(response.data), {"error": "Access Denied. Please provide a valid access code."})
+        self.mock_is_access_valid.assert_called_once_with("WRONG_CODE")
 
     def test_translate_redis_queue_unavailable(self):
         """Tests /translate when Redis queue cannot be obtained."""
@@ -246,8 +277,50 @@ class TestMain(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIn("Translation service temporarily unavailable", json.loads(response.data)['error'])
 
-    # --- /results Endpoint Tests ---
+    @patch('musictranslator.main.requests.get')
+    def test_is_access_valid_function(self, mock_requests_get):
+        """
+        Unit tests the is_access_valid helper function itself.
+        """
+        # --- Test valid case ---
+        mock_response_valid = MagicMock()
+        mock_response_valid.status_code = 200
+        mock_response_valid.json.return_value = {"valid": True}
+        mock_requests_get.return_value = mock_response_valid
 
+        # The class-level patch needs to be stopped to test the real function
+        self.patch_is_access_valid.stop()
+        result = main.is_access_valid("good-code")
+        self.patch_is_access_valid.start() # Restart is for other tests
+        self.assertTrue(result)
+        mock_requests_get.assert_called_with(f"{main.AUTH_SERVICE_URL}/internal/validate-access-code/good-code", timeout=5)
+
+        # --- Test invalid case ---
+        mock_response_invalid = MagicMock()
+        mock_response_invalid.status_code = 200
+        mock_response_invalid.json.return_value = {"valid": False}
+        mock_requests_get.return_value = mock_response_invalid
+
+        self.patch_is_access_valid.stop()
+        self.assertFalse(main.is_access_valid("bad-code"))
+        self.patch_is_access_valid.start()
+
+        # --- Test auth service down ---
+        mock_requests_get.side_effect = requests.exceptions.ConnectionError
+        self.patch_is_access_valid.stop()
+        self.assertFalse(main.is_access_valid("any-code"))
+        self.patch_is_access_valid.start()
+
+        # --- Test auth service returns non-200 ---
+        mock_response_404 = MagicMock()
+        mock_response_404.status_code = 404
+        mock_requests_get.side_effect = None # reset side effect
+        mock_requests_get.return_value = mock_response_404
+        self.patch_is_access_valid.stop()
+        self.assertFalse(main.is_access_valid("any-code"))
+        self.patch_is_access_valid.start()
+
+    # --- /results Endpoint Tests ---
     def test_get_results_success(self):
         """Tests getting results for a successfully finished job."""
         expected_mapped_result = [{
@@ -653,8 +726,8 @@ class TestMain(unittest.TestCase):
         expected_harmonic_result = {
             "static_results_url": f"api/results/file/{self.test_job_id}_audio_harmonic.json",
             "streaming_urls": {
-                "vocals": f"api/results/stream/{self.test_job_id}_vocals.ndjson?stem_path=%2Ffake%2Fstems%2Fvocals.wav",
-                "bass": f"api/results/stream/{self.test_job_id}_bass.ndjson?stem_path=%2Ffake%2Fstems%2Fbass.wav"
+                "vocals": f"api/harmonic/stream/{self.test_job_id}_vocals.ndjson?stem_path=%2Ffake%2Fstems%2Fvocals.wav",
+                "bass": f"api/harmonic/stream/{self.test_job_id}_bass.ndjson?stem_path=%2Ffake%2Fstems%2Fbass.wav"
             }
         }
 

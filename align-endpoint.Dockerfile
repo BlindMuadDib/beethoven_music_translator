@@ -3,7 +3,7 @@ FROM mmcauliffe/montreal-forced-aligner:latest
 WORKDIR /app
 
 USER root
-RUN /opt/conda/bin/mamba install -n base flask gunicorn -y
+RUN /opt/conda/bin/mamba install -n base flask gunicorn gevent -y
 USER mfauser
 
 RUN /env/bin/mfa model download acoustic english_us_arpa
@@ -15,4 +15,4 @@ COPY --chown=mfauser:mfauser ./musictranslator/aligner_wrapper.py /app/aligner_w
 EXPOSE 24725
 
 # Directly use the Conda environment's Python interpreter
-CMD ["/opt/conda/bin/gunicorn", "--bind", "0.0.0.0:24725", "aligner_wrapper:app", "--workers", "2", "--timeout", "1200"]
+CMD ["/opt/conda/bin/gunicorn", "--bind", "0.0.0.0:24725", "aligner_wrapper:app", "--worker-class", "gevent", "--workers", "1", "--worker-connections", "100", "--timeout", "1200"]

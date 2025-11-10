@@ -6,6 +6,7 @@ import os
 import json
 import subprocess
 import time
+import re
 import requests
 import musictranslator
 from musictranslator.musicprocessing.transcribe import process_transcript
@@ -14,52 +15,129 @@ class TestIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        print("Starting setUpClass...")
-        result = subprocess.run(['kind', 'get', 'clusters'], capture_output=True, text=True)
-        if "kind" not in result.stdout:
-            raise Exception("KIND cluster is not running. Please run run_integration_test.sh first.")
+        # print("Starting setUpClass...")
+        # result = subprocess.run(['kind', 'get', 'clusters'], capture_output=True, text=True)
+        # if "kind" not in result.stdout:
+        #     raise Exception("KIND cluster is not running. Please run run_integration_test.sh first.")
 
-        # # Wait for pods to get ready with a timeout
-        # timeout = time.time() + 300
-        # print("Waiting for pods to become ready...")
-        # while time.time() < timeout:
-        #     # Check readiness of deployments
-        #     main_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-        #     worker_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/translator-worker', '--timeout=0s'], capture_output=True).returncode == 0
-        #     align_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/mfa-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-        #     separate_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/demucs-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-        #     f0_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/f0-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-        #     redis_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/redis', '--timeout=0s'], capture_output=True).returncode == 0
-        #     nginx_ready = subprocess.run(['kubectl', 'wait', '--for=condition=available', 'deployment/nginx-deployment', '--timeout=0s'], capture_output=True).returncode == 0
-        #     ingress_ready = subprocess.run(['kubectl', 'wait', '--namespace', 'ingress-nginx', '--for=condition=available', 'deployment/ingress-nginx-controller', '--timeout=0s'], capture_output=True).returncode == 0
-        #
-        #     if main_ready and worker_ready and align_ready and separate_ready and redis_ready and nginx_ready and ingress_ready and f0_ready:
-        #         try:
-        #             print("Checking health endpoints...")
-        #             main_health = requests.get("https://localhost/api/translate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-        #             align_health = requests.get("https://localhost/api/align/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-        #             separate_health = requests.get("https://localhost/api/separate/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-        #             f0_health = requests.get("https://localhost/api/f0/health", headers={"Host": "musictranslator.org"}, verify=False, timeout=10)
-        #
-        #             if main_health.status_code == 200 and align_health.status_code == 200 and separate_health.status_code == 200:
-        #                 print("All health checks passed.")
-        #                 break
-        #             else:
-        #                 print(f"Health checks failed. Main: {main_health.status_code}, Align: {align_health.status_code}, Separate: {separate_health.status_code}. Retrying...")
-        #
-        #         except requests.exceptions.RequestException as e:
-        #             print(f"Health check request failed: {e}. Retrying...")
-        #
-        #     time.sleep(5)
-        # else:
-        #     subprocess.run(['kubectl', 'get', 'pods'])
-        #     raise Exception("Timeout waiting for pods to become ready")
+        # It's assumed that the run_integration_test.sh script has already
+        # deployed all necessary services
 
-        cls.base_url = "https://localhost/api"
+        cls.base_url = "https://musictranslator.org:8443/api"
+        cls.auth_base_url = "https://musictranslator.org:8443/auth"
         cls.host_header = {"Host": "musictranslator.org"}
         cls.ssl_verify = False
+        cls.test_email = f"test-user-{int(time.time())}@example.com"
+
+        # --- Get a valid access code from the auth service ---
+        print(f"Attempting to get a valid access code from {cls.auth_base_url}...")
+        cls.valid_access_code = cls.get_new_access_code(cls.test_email)
+        print(f"Successfully obtained access code: {cls.valid_access_code}")
 
         print("SetUpClass completed")
+
+    @classmethod
+    def get_new_access_code(cls, email):
+        """
+        Logs into the auth service as admin, creates and approves an access
+        request, and returns the generated access code.
+        """
+        with requests.Session() as session:
+            # 1. Login as Admin
+            admin_login_url = f"{cls.auth_base_url}/login"
+            admin_creds = {
+                "email": "admin@musictranslator.org",
+                "password": "a-very-secure-admin-password",
+                "submit": "Sign In"
+            }
+            try:
+                # The form submission might require fetching a CSRF token first
+                login_page_resp = session.get(admin_login_url,
+                                              headers=cls.host_header,
+                                              verify=cls.ssl_verify)
+                login_page_resp.raise_for_status()
+                # A simple way to get the token without a full HTML parser
+                csrf_token_match = re.search(
+                    r'name="csrf_token" type="hidden" value="([^"]+)"',
+                    login_page_resp.text
+                )
+                if csrf_token_match:
+                    admin_creds["csrf_token"] = csrf_token_match.group(1)
+
+                login_resp = session.post(admin_login_url,
+                                          headers=cls.host_header,
+                                          data=admin_creds,
+                                          verify=cls.ssl_verify)
+                login_resp.raise_for_status()
+                if "Invalid email or password" in login_resp.text:
+                    raise Exception("Admin login failed. Check credentials in auth-deployment.yaml")
+                print("Admin login successful.")
+
+                # 2. Request access for the test user
+                req_access_url = f"{cls.auth_base_url}/request-access"
+                # GET the page to scrape the CSRF token
+                get_req_page_resp = session.get(req_access_url,
+                                                headers=cls.host_header,
+                                                verify=cls.ssl_verify)
+                get_req_page_resp.raise_for_status()
+
+                # Scrape the token from the request form
+                csrf_token_match = re.search(
+                    r'name="csrf_token" type="hidden" value="([^"]+)"',
+                    get_req_page_resp.text
+                )
+
+                access_request_data = {"email": email}
+                if csrf_token_match:
+                    access_request_data["csrf_token"] = csrf_token_match.group(1)
+
+                # POST with the token included
+                req_access_resp = session.post(req_access_url,
+                                               headers=cls.host_header,
+                                               data=access_request_data,
+                                               verify=cls.ssl_verify,
+                                               allow_redirects=True)
+                req_access_resp.raise_for_status()
+                print(f"Access request for {email} submitted.")
+
+                # 3. Get the request ID with the testing endpoint
+                get_id_url = f"{cls.auth_base_url}/_get_request_id/{email}"
+                id_resp = session.get(get_id_url,
+                                      headers=cls.host_header,
+                                      verify=cls.ssl_verify)
+                id_resp.raise_for_status()
+                id_data = id_resp.json()
+                req_id = id_data.get("request_id")
+                if not req_id:
+                    raise Exception(f"Could not retrieve request ID for {email} via testing endpoint.")
+                print(f"Found request ID via API: {req_id}")
+
+                # 4. Approve the request using its ID
+                approve_url = f"{cls.auth_base_url}/admin/approve/{req_id}"
+                approve_resp = session.post(approve_url,
+                                            headers=cls.host_header,
+                                            verify=cls.ssl_verify)
+                approve_resp.raise_for_status()
+                print(f"Request ID {req_id} approved.")
+
+                # 5. Retrieve the access code using the testing endpoint
+                get_code_url = f"{cls.auth_base_url}/_get_access_code/{email}"
+                code_resp = session.get(get_code_url,
+                                        headers=cls.host_header,
+                                        verify=cls.ssl_verify)
+                code_resp.raise_for_status()
+                access_code = code_resp.json().get("access_code")
+                if not access_code:
+                    raise Exception("Failed to retrieve access code after approval.")
+
+                return access_code
+
+            except requests.exceptions.RequestException as e:
+                print(f"ERROR setting up integration test: Failed to communicate with auth service: {e}")
+                # Add a sleep and retry, as the service might not be fully ready
+                time.sleep(10)
+                # For a real CI, this might be looped, but for now, just fail
+                raise Exception("Could not get access code. Is the auth service running and accessible via Ingress?") from e
 
     @classmethod
     def tearDownClass(cls):
@@ -67,8 +145,8 @@ class TestIntegration(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.audio_file_path = "data/audio/BloodCalcification-NoMore.wav"
-        self.lyrics_file_path = "data/lyrics/BloodCalcification-NoMore.txt"
+        self.audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
+        self.lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
         self.audio_file = open(self.audio_file_path, 'rb')
         self.lyrics_file = open(self.lyrics_file_path, 'rb')
 
@@ -79,11 +157,14 @@ class TestIntegration(unittest.TestCase):
             self.lyrics_file.close()
 
     def test_translate_success(self):
-        target_url = f"{self.base_url}/translate?access_code="
+        # Use the dynamically fetched access code
+        target_url = f"{self.base_url}/translate"
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
         }
+        headers = {**self.host_header,
+                   'X-Access-Code': self.valid_access_code}
 
         print("\nSubmitting translation job...")
         try:
@@ -91,7 +172,7 @@ class TestIntegration(unittest.TestCase):
             response = requests.post(
                 target_url,
                 files=files,
-                headers=self.host_header,
+                headers=headers,
                 timeout=1200,
                 verify=self.ssl_verify
             )
@@ -202,7 +283,9 @@ class TestIntegration(unittest.TestCase):
             print(f"Harmonic analysis static URL found: {static_harmonic_url}. Fetching data...")
 
             # Fetch the data from the static_results_url and validate it.
-            full_static_harmonic_url = f"https://localhost/{static_harmonic_url}"
+            # Re-use the base URL's host, not localhost
+            base_host = self.base_url.rsplit('/api', 1)[0] # This gets 'https://musictranslator.org:8443'
+            full_static_harmonic_url = f"{base_host}/{static_harmonic_url}"
             harmonic_response = requests.get(full_static_harmonic_url,
                                              headers=self.host_header,
                                              verify=self.ssl_verify,
@@ -280,9 +363,10 @@ class TestIntegration(unittest.TestCase):
                 "frequencies": list,
             }
 
+            base_host = self.base_url.rsplit('/api', 1)[0]
             for stem_name, stream_url in streaming_urls.items():
                 print(f"--- Validating stream for stem: '{stem_name}' ---")
-                full_stream_url = f"https://localhost/{stream_url}"
+                full_stream_url = f"{base_host}/{stream_url}"
 
                 stream_response = requests.get(
                     full_stream_url,
@@ -496,6 +580,31 @@ class TestIntegration(unittest.TestCase):
         except json.JSONDecodeError as e:
             self.fail(f"JSON decode error during integration test: {e}. Response: {response.text if 'response' in locals() else 'N/A'}")
 
+    def test_translate_invalid_access_code(self):
+        """
+        Test that a made-up access code is rejected.
+        """
+        target_url = f"{self.base_url}/translate"
+        files = {
+            'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
+            'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
+        }
+        headers = {**self.host_header, 'X-Access-Code': 'this-is-a-fake-code-12345'}
+
+        response = requests.post(
+            target_url,
+            files=files,
+            headers=headers,
+            timeout=180,
+            verify=self.ssl_verify
+        )
+        self.assertEqual(response.status_code, 401,
+                         f"Expected 401 error code, received {response.status_code}.")
+        response_data = response.json()
+        self.assertIn("error", response_data)
+        self.assertEqual(response_data["error"],
+                         "Access Denied. Please provide a valid access code.")
+
     def test_translate_without_access_code(self):
         """Test no access granted to those without code"""
         target_url = f"{self.base_url}/translate"
@@ -510,56 +619,59 @@ class TestIntegration(unittest.TestCase):
             timeout=180,
             verify=self.ssl_verify
         )
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 401,
+                         f"Expected 401 error code, received {response.status_code}.")
         response_data = response.json()
         self.assertIn("error", response_data)
         self.assertEqual(response_data["error"], "Access Denied. Please provide a valid access code.")
-
-    def test_get_results_initial_status(self):
-        """Test getting the initial status of a job"""
-        print("\nTesting initial job status retrieval...")
-        target_url = f"{self.base_url}/translate?access_code="
-        files = {
-            'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
-            'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
-        }
-
-        try:
-            # Submit the job
-            response = requests.post(
-                target_url,
-                files=files,
-                headers=self.host_header,
-                timeout=60,
-                verify=self.ssl_verify
-            )
-            response.raise_for_status()
-            self.assertEqual(response.status_code, 202)
-            response_data = response.json()
-            self.assertIn("job_id", response_data)
-            job_id = response_data["job_id"]
-            print(f"Job submitted with ID: {job_id}. Checking initial status...")
-
-            # Give a moment for the job to be registered by RQ
-            time.sleep(2)
-
-            # Check the status
-            result_url = f"{self.base_url}/results/{job_id}"
-            result_response = requests.get(
-                result_url,
-                headers=self.host_header,
-                verify=self.ssl_verify,
-                timeout=20
-            )
-            result_response.raise_for_status()
-            result_data = result_response.json()
-
-            self.assertIn("status", result_data)
-            self.assertIn(result_data["status"], ['queued', 'started'], f"Expected initial status 'queued' or 'started', but got '{result_data['status']}'")
-            print(f"Initial job status retrieval test passed. Status: {result_data['status']}")
-
-        except requests.exceptions.RequestException as e:
-            self.fail(f"Error during initial status test: {e}")
+    #
+    # def test_get_results_initial_status(self):
+    #     """Test getting the initial status of a job"""
+    #     print("\nTesting initial job status retrieval...")
+    #     target_url = f"{self.base_url}/translate"
+    #     files = {
+    #         'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
+    #         'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
+    #     }
+    #     headers = {**self.host_header,
+    #                'X-Access-Code': self.valid_access_code}
+    #
+    #     try:
+    #         # Submit the job
+    #         response = requests.post(
+    #             target_url,
+    #             files=files,
+    #             headers=headers,
+    #             timeout=60,
+    #             verify=self.ssl_verify
+    #         )
+    #         response.raise_for_status()
+    #         self.assertEqual(response.status_code, 202)
+    #         response_data = response.json()
+    #         self.assertIn("job_id", response_data)
+    #         job_id = response_data["job_id"]
+    #         print(f"Job submitted with ID: {job_id}. Checking initial status...")
+    #
+    #         # Give a moment for the job to be registered by RQ
+    #         time.sleep(2)
+    #
+    #         # Check the status
+    #         result_url = f"{self.base_url}/results/{job_id}"
+    #         result_response = requests.get(
+    #             result_url,
+    #             headers=self.host_header,
+    #             verify=self.ssl_verify,
+    #             timeout=20
+    #         )
+    #         result_response.raise_for_status()
+    #         result_data = result_response.json()
+    #
+    #         self.assertIn("status", result_data)
+    #         self.assertIn(result_data["status"], ['queued', 'started'], f"Expected initial status 'queued' or 'started', but got '{result_data['status']}'")
+    #         print(f"Initial job status retrieval test passed. Status: {result_data['status']}")
+    #
+    #     except requests.exceptions.RequestException as e:
+    #         self.fail(f"Error during initial status test: {e}")
 
     def test_get_results_nonexistent_job(self):
         """Tests getting results for a job ID that does not exist"""

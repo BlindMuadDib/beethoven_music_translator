@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const htmlPath = path.resolve(__dirname, '../www/index.html')
 
-// --- Test Suite 1: Unit Tests for app.js logic ---
+// --- Test Suite for app.js logic ---
 describe('App End-to-End User Flow Integration', () => {
     let mockUi, mockApi, mockPlayer, form;
 
@@ -25,26 +25,30 @@ describe('App End-to-End User Flow Integration', () => {
             updateUIVisibility: jest.fn(),
             setSubmitButtonDisabled: jest.fn(),
             showStatusMessage: jest.fn(),
+            updateAuthUI: jest.fn(),
         };
         mockApi = {
             submitJob: jest.fn(),
             pollJobStatus: jest.fn(),
+            checkAuthStatus: jest.fn(),
         };
         mockPlayer = {
             initPlayer: jest.fn(),
         };
     });
 
-    test('init() should correctly display only the upload UI on page load', () => {
-        // Arrange: Use a spy to check if the real ui.updateUIVisibility is called
-        const updateSpy = jest.spyOn(mockUi, 'updateUIVisibility');
+    describe('init()', () => {
+        test('should check auth, update UI for a logged-in user, and set visibility to uploadUI', async () => {
+            const authData = { isAuthenticated: true, user: { email: 'test@example.com' } };
+            mockApi.checkAuthStatus.mockResolvedValue(authData);
 
-        // Act: Initialize the application
-        init(mockUi, mockApi, mockPlayer, form);
+            await init(mockUi, mockApi, mockPlayer, form);
 
-        // Assert: Verify the initial state of the DOM visibility
-        expect(updateSpy).toHaveBeenCalledWith('upload');
-        expect(updateSpy).toHaveBeenCalledTimes(1);
+            expect(mockApi.checkAuthStatus).toHaveBeenCalledTimes(1);
+            expect(mockUi.updateAuthUI).toHaveBeenCalledWith(authData);
+            expect(mockUi.cacheDOMElements).toHaveBeenCalled();
+            expect(mockUi.updateUIVisibility).toHaveBeenCalledWith('upload');
+        });
     });
 
     test('Successful submission should transition UI through all states: status -> player', async () => {

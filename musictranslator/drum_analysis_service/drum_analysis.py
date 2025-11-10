@@ -323,11 +323,16 @@ def analyze_audio_concurrently(
     """
     logger.info("Starting concurrent audio analysis.")
 
+    MAX_WORKERS_DRUM_ANALYSIS = int(os.environ.get("DRUMS_CPU_WORKERS", "1"))
+
     # Use a 'with' statement to create a temporary exuctor for this
     # specific audio file. It's initialized with the audio data, so
     # we don't need to pickly it repeatedly.
-    with ProcessPoolExecutor(initializer=_init_analysis_worker,
-                             initargs=(y, sr)) as executor:
+    with ProcessPoolExecutor(
+        max_workers=MAX_WORKERS_DRUM_ANALYSIS,
+        initializer=_init_analysis_worker,
+        initargs=(y, sr)
+    ) as executor:
         # Submit tempo estimation task using the worker global 'y'
         tempo_future = executor.submit(_estimate_tempo_worker)
         logger.debug("Tempo estimation future submitted.")

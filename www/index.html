@@ -7,8 +7,26 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <header>
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <h1>Music Translator for and by Deaf</h1>
+            </div>
+            <div id="auth-links-container">
+                <div id="logged-out-view">
+                    <a href="/auth/login">Login</a>
+                    <a href="/auth/register">Register</a>
+                    <a href="/auth/request-access">Request Access</a>
+                </div>
+                <div id="logged-in-view" style="display: none;">
+                    <span id="user-greeting"></span>
+                    <a href="/auth/logout">Logout</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
     <div id="upload-ui-container">
-        <h1>Music Translator for and by Deaf (Alpha)</h1>
         <p>Welcome! Upload a <strong>.wav</strong> audio file, its corresponding <strong>.txt</strong> lyrics, and provide an access code.</p>
         <p>Uploaded files will be used only for processing your translation request and are not saved to our database.</p>
 
@@ -22,9 +40,9 @@
                     <label for="lyrics">Lyrics File (.txt):</label>
                     <input type="file" id="lyrics" name="lyrics" accept="text/plain" required>
                 </div>
-                <div>
+                <div id="access-code-container">
                     <label for="access_code">Access Code:</label>
-                    <input type="text" id="access_code" name="access_code" required>
+                    <input type="text" id="access_code" name="access_code">
                 </div>
                 <button type="submit" id="submit-button">Translate</button>
             </form>

@@ -154,7 +154,14 @@ class TestHarmonicServiceE2EPodman(unittest.TestCase):
                 HARMONIC_SERVICE_IMAGE_TAG,
                 name=HARMONIC_SERVICE_CONTAINER_NAME,
                 ports={'20006/tcp': 20006},
-                environment={"HARMONIC_CPU_WORKERS": "2"},
+                environment={
+                    "HARMONIC_CPU_WORKERS": "2",
+                    "OMP_NUM_THREADS": "1",
+                    "OPENBLAS_NUM_THREADS": "1",
+                    "MKL_NUM_THREADS": "1",
+                    "NUMBA_NUM_THREADS": "1",
+                    "NUMEXPR_NUM_THREADS": "1"
+                },
                 volumes={
                     HOST_STEM_DIR: {
                         'bind': CONTAINER_STEM_DIR,

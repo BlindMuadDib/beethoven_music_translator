@@ -16,6 +16,7 @@ import uuid
 import threading
 import time
 import magic
+import requests
 import redis
 import rq
 from urllib.parse import urlencode
@@ -34,9 +35,7 @@ app = Flask(__name__)
 # Define the directory where uploaded/processed files are stored for serving
 SERVE_AUDIO_DIR = '/shared-data/audio'
 
-# Store valid access codes
-
-VALID_ACCESS_CODES = set([''])
+AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', 'http://auth-service')
 
 # --- Lazy Redis Connection and Queue  ---
 
@@ -94,6 +93,51 @@ def teardown_redis(exception=None):
             app.logger.warning("Error closing Redis connection: %s", e)
 
 # --- End RQ Setup ---
+
+# --- VALIDATE ACCESS HELPER FUNCTION ---
+def is_session_valid(session_cookie):
+    """
+    Validates a session by forwarding the cookie to the auth service.
+    """
+    if not session_cookie:
+        return False
+    try:
+        url = f"{AUTH_SERVICE_URL}/internal/validate-session"
+        app.logger.info(f"Validating session against: {url}")
+        # Forward the user's session cookie to the auth service
+        cookies = {'session': session_cookie}
+        response = requests.get(url, cookies=cookies, timeout=5)
+
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("valid", False)
+
+        app.logger.error(f"Auth service returned non-200 status for session validation: {response.status_code}")
+        return False
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Could not connect to auth service for session validation: {e}")
+        return False
+
+def is_access_valid(access_code):
+    """
+    Validates an access code by calling the external authentication service.
+    """
+    if not access_code:
+        return False
+    try:
+        url = f"{AUTH_SERVICE_URL}/internal/validate-access-code/{access_code}"
+        app.logger.info(f"Validating access code against: {url}")
+        response = requests.get(url, timeout=5)
+
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("valid", False)
+
+        app.logger.error(f"Auth service returned non-200 status: {response.status_code}")
+        return False
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Could not connect to auth service: {e}")
+        return False
 
 # --- Define the Background Task ---
 
@@ -165,22 +209,34 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
             "alignment_json_path": None, "alignment_error": None,
             "harmonic_analysis_urls": None, "harmonic_error": None,
             "drum_analysis_data": None, "drum_error": None,
+            "mfa_job_dir": None
         }
 
         def _align_lyrics_task():
             try:
                 logger.info("Align-Thread: Starting lyrics alignment for vocals '%s' and lyrics '%s'.", vocals_stem_path, unique_lyrics_path)
+
                 result = align_lyrics(vocals_stem_path, unique_lyrics_path)
+
                 if isinstance(result, dict) and "error" in result:
                     thread_results_shared["alignment_error"] = result["error"]
                     logger.error("Align-Thread: MFA error = %s", result['error'])
-                elif not result or (isinstance(result, str) and not os.path.exists(result)):
+
+                elif not result or 'alignment_file_path' not in result or 'job_dir_path' not in result:
+                    err_msg = f"Alignment result path invalid or missing keys: {result}"
+                    thread_results_shared['alignment_error'] = err_msg
+                    logger.error("Align-Thread: %s", err_msg)
+
+                elif not os.path.exists(result['alignment_file_path']):
                     err_msg = f"Alignment result path invalid or not found: {result}"
                     thread_results_shared["alignment_error"] = err_msg
                     logger.error("Align-Thread: %s", err_msg)
+
                 else:
-                    thread_results_shared["alignment_json_path"] = result
-                    logger.info("Align-Thread: Alignment successful. Path: %s", result)
+                    thread_results_shared["alignment_json_path"] = result['alignment_file_path']
+                    # Save the cleanup dir
+                    thread_results_shared["mfa_job_dir"] = result['job_dir_path']
+                    logger.info("Align-Thread: Alignment successful. Path: %s", result['alignment_file_path'])
             except Exception as e:
                 logger.error("Align-Thread: Exception - %s", e, exc_info=True)
                 thread_results_shared["alignment_error"] = str(e)
@@ -378,11 +434,15 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
 
         if job and job.connection:
             cleanup_queue = Queue('cleanup_files', connection=job.connection)
+
+            mfa_job_path = thread_results_shared.get("mfa_job_dir")
+
             cleanup_queue.enqueue(
                 'musictranslator.main.cleanup_files',
                 lyrics_path=unique_lyrics_path,
                 alignment_path=alignment_json_path,
-                separate_path=separate_cleanup_path
+                separate_path=separate_cleanup_path,
+                mfa_job_path=mfa_job_path
             )
         else:
             logger.error("Could not get job or Redis connection in background task for cleanup")
@@ -399,17 +459,6 @@ def background_translation_task(unique_audio_path, unique_lyrics_path, unique_au
         raise
 
 # --- End Background Task Definition ---
-
-def validate_access():
-    """Validate access based on an access code"""
-    access_code = request.args.get('access_code') or request.headers.get('X-Access-Code')
-    app.logger.info("DEBUG - Attempting access with code: '%s", access_code)
-    app.logger.info("DEBUG - Valid access codes: %s", VALID_ACCESS_CODES)
-    if access_code and access_code in VALID_ACCESS_CODES:
-        app.logger.info("DEBUG - Access granted.")
-        return True
-    app.logger.info("DEBUG - Access denied.")
-    return False
 
 def validate_audio(file_path):
     """
@@ -495,7 +544,8 @@ def translate():
     Returns:
         Alignment json of song and lyrics with f0 analysis for each stem or error
     """
-    app.logger.info("DEBUG - Received translation request. Attempting Redis connection ... ")
+    app.logger.info("DEBUG - Received translation request. Headers: %s, Attempting Redis connection ... ",
+                    request.headers)
     # --- Get Queue (which implicitly checks/gets Redis connection) ---
     translation_queue = get_translation_queue()
     if not translation_queue:
@@ -505,12 +555,36 @@ def translate():
         }), 503
 
     # --- Access Validation ---
-    access_code = request.args.get('access_code') or request.headers.get('X-Access-Code')
-    app.logger.info("DEBUG - Attempting access with code: '%s'", access_code)
-    if not access_code or access_code not in VALID_ACCESS_CODES:
-        app.logger.info("DEBUG - Access denied.")
+    is_authorized = False
+    # 1. Prioritize checking for a valid session cookie
+    session_cookie = request.cookies.get('session')
+
+    app.logger.info("Attempting authorization...")
+    if session_cookie:
+        app.logger.info("DEBUG - Session cookie found, attempting validation.")
+        if is_session_valid(session_cookie):
+            is_authorized = True
+            app.logger.info("DEBUG - Access granted via session.")
+
+    # 2. If not authorized by session, fall back to access code
+    if not is_authorized:
+        access_code = request.headers.get('X-Access-Code')
+        app.logger.info("DEBUG - No valid session, attempting access with code: '%s'", access_code)
+        if is_access_valid(access_code):
+            is_authorized = True
+            app.logger.info("DEBUG - Access granted via access code.")
+
+    if not is_authorized:
+        app.logger.info("DEBUG - Access denied. No valid session of access code provided.")
+
+        # Consume the rest of the request's body before returning.
+        # This prevents an IncompleteRead error on the client when it's
+        # still uploading a large file.
+        request.stream.read()
+
         return jsonify({"error": "Access Denied. Please provide a valid access code."}), 401
-    app.logger.info("DEBUG - Access granted")
+
+    app.logger.info("Authorization successul. Handling file upload...")
 
     # --- File Handling & Validation ---
     if 'audio' not in request.files or 'lyrics' not in request.files:
@@ -722,12 +796,12 @@ def delete_audio_file(filename):
         app.logger.warning(f"Client requested cleanup for non-existent file: {file_path}")
         return jsonify({"message": "File not found, but request is considered complete"}), 200
 
-def cleanup_files(lyrics_path, alignment_path, separate_path):
+def cleanup_files(lyrics_path, alignment_path, separate_path, mfa_job_path=None):
     """Cleanup files after final result is determined and sent to frontend"""
     app.logger.info(
-        "Cleaning up files: lyrics - %s, alignment - %s, stems - %s",
+        "Cleaning up files: lyrics - %s, alignment - %s, stems - %s, mfa_job - %s",
         lyrics_path,
-        alignment_path, separate_path
+        alignment_path, separate_path, mfa_job_path
     )
     if lyrics_path and os.path.exists(lyrics_path):
         os.remove(lyrics_path)
@@ -738,6 +812,9 @@ def cleanup_files(lyrics_path, alignment_path, separate_path):
     if separate_path and os.path.exists(separate_path):
         shutil.rmtree(separate_path)
         app.logger.info(f"Deleted: %s", separate_path)
+    if mfa_job_path and os.path.exists(mfa_job_path):
+        shutil.rmtree(mfa_job_path)
+        app.logger.info(f"Deleted MFA job directory: %s", mfa_job_path)
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=20005, debug=True)

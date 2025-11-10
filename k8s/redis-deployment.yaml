@@ -23,7 +23,7 @@ spec:
             memory: "12Gi"
             cpu: "500m"
           requests:
-            memory: "4Gi"
+            memory: "1Gi"
             cpu: "100m"
         readinessProbe:
           tcpSocket:

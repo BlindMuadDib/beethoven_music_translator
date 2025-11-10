@@ -53,8 +53,19 @@ export async function handleFormSubmit(event, ui, api, playerDependencies) {
  * @param {object} api - The API module dependency.
  * @param {object} player - The Player module dependency.
  */
-export function init(ui, api, playerDependencies, formElement) {
+export async function init(ui, api, playerDependencies, formElement) {
     ui.cacheDOMElements();
+
+    // Check auth status first and update the UI accordingly
+    try {
+        const authStatus = await api.checkAuthStatus();
+        ui.updateAuthUI(authStatus);
+    } catch (e) {
+        // If the auth check itself fails, proceed is if logged out.
+        console.error("Failed to initialize auth status:", e);
+        ui.updateAuthUI({ isAuthenticated: false });
+    }
+
     ui.updateUIVisibility('upload');
 
     if (formElement) {

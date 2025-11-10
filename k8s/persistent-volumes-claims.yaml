@@ -5,7 +5,8 @@ metadata:
   name: shared-data-pvc
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
+  storageClassName: rook-cephfs
   resources:
     requests:
       storage: 50Gi

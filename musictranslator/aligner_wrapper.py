@@ -18,34 +18,51 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 
-CORPUS_DIR = "/shared-data/corpus"
-OUTPUT_DIR = "/shared-data/aligned"
+BASE_MFA_DIR = "/shared-data/mfa-jobs"
 
 @app.route('/api/align', methods=['POST'])
 def align():
     """Main function of the wrapper"""
     app.logger.info("Starting MFA wrapper...")
-    data = request.get_json()
-    if not data or 'vocals_stem_path' not in data or 'lyrics_path' not in data:
-        app.logger.info("vocals_stem_path or lyrics_path missing")
-        return jsonify({'error': 'vocals_stem_path or lyrics_file_path missing'}), 400
 
-    # Extract filenames and create matching base names
-    vocals_stem_path = request.json['vocals_stem_path']
-    lyrics_file_path = request.json['lyrics_path']
-    base_name = os.path.splitext(os.path.basename(vocals_stem_path))[0]
-    # Copy files to corpus directory with matching base names
-    corpus_audio_path = os.path.join(CORPUS_DIR, f"{base_name}.wav")
-    corpus_lyrics_path = os.path.join(CORPUS_DIR, f"{base_name}.txt")
-    json_output_path = os.path.join(OUTPUT_DIR, f"{base_name}.json")
+    # Initialize job-specific paths
+    JOB_DIR = None
 
     try:
-        # Ensure clean state for every run
-        app.logger.info(f"Cleaning working directories: {CORPUS_DIR} and {OUTPUT_DIR}")
-        shutil.rmtree(CORPUS_DIR, ignore_errors=True)
-        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        data = request.get_json()
+        if not data or 'vocals_stem_path' not in data or 'lyrics_path' not in data:
+            app.logger.info("vocals_stem_path or lyrics_path missing")
+            return jsonify({'error': 'vocals_stem_path or lyrics_file_path missing'}), 400
+
+        # Extract paths from the request
+        vocals_stem_path = request.json['vocals_stem_path']
+        lyrics_file_path = request.json['lyrics_path']
+
+        # Extract the unique job_id from the lyrics filename
+        lyrics_filename = os.path.basename(lyrics_file_path)
+        if '_' not in lyrics_filename:
+            return jsonify({'error': f"Invalid lyrics filename format, cannot extract job_id: {lyrics_filename}"}), 400
+
+        job_id = lyrics_filename.split('_')[0]
+        # Use this unique job_id as the base_name for all MFA files
+        base_name = job_id
+
+        # Define unique directories for this specific job
+        JOB_DIR = os.path.join(BASE_MFA_DIR, job_id)
+        CORPUS_DIR = os.path.join(JOB_DIR, "corpus")
+        OUTPUT_DIR = os.path.join(JOB_DIR, "aligned")
+
+        # Define unique file paths for this job
+        corpus_audio_path = os.path.join(CORPUS_DIR, f"{base_name}.wav")
+        corpus_lyrics_path = os.path.join(CORPUS_DIR, f"{base_name}.txt")
+        json_output_path = os.path.join(OUTPUT_DIR, f"{base_name}.json")
+
+        # Create unique directories
+        app.logger.info("Creating atomic job directories: %s", JOB_DIR)
         os.makedirs(CORPUS_DIR, exist_ok=True)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+        # Copy files to corpus directory with matching base names
         shutil.copy(vocals_stem_path, corpus_audio_path)
         shutil.copy(lyrics_file_path, corpus_lyrics_path)
 
@@ -91,7 +108,10 @@ def align():
                 return jsonify({'error': f"Alignment failed: {retry_result.stderr}"}), 500
             alignment_result = retry_result
         app.logger.info(f"JSON export likely successful to {json_output_path}")
-        return jsonify({'alignment_file_path': json_output_path}), 200
+        return jsonify({
+            'alignment_file_path': json_output_path,
+            'job_dir_path': JOB_DIR
+        }), 200
 
     except subprocess.CalledProcessError as e:
         error_message = e.stderr if e.stderr else str(e)

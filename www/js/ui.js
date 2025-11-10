@@ -12,6 +12,43 @@ export function cacheDOMElements(){
     uiElements.playerUI = document.getElementById('player-ui-container');
     uiElements.statusMessage = document.getElementById('status-message');
     uiElements.submitButton = document.getElementById('submit-button');
+    uiElements.loggedInView = document.getElementById('logged-in-view');
+    uiElements.loggedOutView = document.getElementById('logged-out-view');
+    uiElements.userGreeting = document.getElementById('user-greeting');
+    uiElements.accessCodeContainer = document.getElementById('access-code-container');
+    uiElements.accessCodeInput = document.getElementById('access_code');
+}
+
+/**
+ * Updates the navigation bar to show either login/register or logout/user info
+ * @param {object} authStatus - The authentication status object from the API.
+ * e.g., { isAuthenticated: boolean, user?: { email: string } }
+ */
+export function updateAuthUI(authStatus) {
+    const { loggedInView, loggedOutView, userGreeting, accessCodeContainer, accessCodeInput } = uiElements;
+
+    if (!loggedInView || !loggedOutView || !userGreeting || !accessCodeInput) {
+        console.error("Authentication UI elements not found in the DOM.");
+        return;
+    }
+
+    if (authStatus && authStatus.isAuthenticated) {
+        // User is logged in, show their view
+        loggedInView.style.display = 'flex';
+        loggedOutView.style.display = 'none';
+        userGreeting.textContent = `Welcome, ${authStatus.user?.email || 'User'}`;
+
+        if (accessCodeContainer) accessCodeContainer.style.display = 'none';
+        accessCodeInput.required = false;
+
+    } else {
+        // User is logged out, show the default view
+        loggedInView.style.display = 'none';
+        loggedOutView.style.display = 'flex';
+
+        if (accessCodeContainer) accessCodeContainer.style.display = 'block';
+        accessCodeInput.required = true;
+    }
 }
 
 /**

@@ -15,26 +15,37 @@ spec:
       labels:
         app: demucs-wrapper
     spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
       containers:
         - name: demucs-container
-          image: docker.io/blindmuaddib/separate-endpoint:1.1
+          image: docker.io/blindmuaddib/separate-endpoint:1.2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 22227
+          readinessProbe:
+            httpGet:
+              path: /api/separate/health
+              port: 22227
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/separate/health
+              port: 22227
+            initialDelaySeconds: 30
+            periodSeconds: 20
           resources:
             requests:
-              cpu: "2"
-              memory: "24Gi"
+              cpu: "250m"
+              memory: "1Gi"
             limits:
               cpu: "12"
-              memory: "40Gi"
+              memory: "12Gi"
           volumeMounts:
             - name: shared-data
-              mountPath: /shared-data/audio
-              subPath: audio
-            - name: shared-data
-              mountPath: /shared-data/separator_output
-              subPath: separator_output
+              mountPath: /shared-data
       volumes:
         - name: shared-data
           persistentVolumeClaim:

@@ -7,7 +7,8 @@ spec:
   selector:
     app: drums-client
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 25941
       targetPort: 25941
 

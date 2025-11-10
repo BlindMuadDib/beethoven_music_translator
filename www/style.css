@@ -6,6 +6,57 @@ body {
     background-color: #121212;
     color: #eeeeee;
 }
+
+/* --- Navbar Styles --- */
+header {
+    background-color: #1e1e1e;
+    padding: 10px 40px;
+    border-bottom: 1px solid #444;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px; /* Constrain width on large screens */
+    margin: 0 auto;
+}
+
+.navbar-brand h1 {
+    margin: 0;
+    font-size: 1.5rem; /* Slightly smaller for a navbar */
+    color: #eeeeee;
+    text-align: left;
+}
+
+#auth-links-container a {
+    color: #eeeeee;
+    text-decoration: none;
+    font-weight: bold;
+    padding: 8px 12px;
+    border-radius: 4px;
+    transition: background-color 0.3s ease;
+}
+
+#auth-link-container a:hover {
+    background-color: #282828;
+    text-decoration: none; /* Override default link hover */
+}
+
+#logged-in-view, #logged-out-view {
+    display: flex;
+    align-items: center;
+    gap: 15px; /* Space between links */
+}
+
+#user-greeting {
+    color: #ccc;
+    font-size: 0.9em;
+}
+/* --- End Navbar Styles --- */
+
 a {
     color: #8A2BE2;
     text-decoration: none;

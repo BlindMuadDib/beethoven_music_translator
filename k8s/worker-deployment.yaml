@@ -13,9 +13,13 @@ spec:
       labels:
         app: translator-worker
     spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
       containers:
       - name: worker
-        image: blindmuaddib/music-translator:latest
+        image: blindmuaddib/music-translator:0.1.0
+        imagePullPolicy: IfNotPresent
         command: ["python", "worker.py"]
         env:
           - name: REDIS_HOST
@@ -30,7 +34,7 @@ spec:
             memory: "6Gi"
             cpu: "1.5"
           requests:
-            memory: "2Gi"
+            memory: "1Gi"
             cpu: "500m"
       volumes:
         - name: shared-data-volume

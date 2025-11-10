@@ -1,0 +1,23 @@
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "auth-db-ingress-allow"
+  namespace: "zalando"
+spec:
+  # 1. Select the database pod
+  endpointSelector:
+    matchLabels:
+      "k8s:cluster-name": "auth-db-cluster"
+      "k8s:io.kubernetes.pod.namespace": "zalando"
+
+  # 2. Allow INGRESS only from the auth-server's identity
+  ingress:
+    - fromEndpoints:
+      - matchLabels:
+          "k8s:app": "auth-server"
+          "k8s:io.kubernetes.pod.namespace": "default"
+      toPorts:
+      - ports:
+        - port: "5432"
+          protocol: "TCP"

@@ -13,32 +13,43 @@ spec:
       labels:
         app: mfa-wrapper
     spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+        seccompProfile:
+          type: Unconfined
       containers:
         - name: mfa-wrapper-container
           image: docker.io/blindmuaddib/align-endpoint:1.2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 24725
+          readinessProbe:
+            httpGet:
+              path: /api/align/health
+              port: 24725
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/align/health
+              port: 24725
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
-              cpu: "2"
-              memory: "6Gi"
+              cpu: "1"
+              memory: "2Gi"
             limits:
               cpu: "4"
-              memory: "10Gi"
+              memory: "2Gi"
           volumeMounts:
             - name: shared-data
-              mountPath: /shared-data/lyrics
-              subPath: lyrics
-            - name: shared-data
-              mountPath: /shared-data/separator_output
-              subPath: separator_output
-            - name: shared-data
-              mountPath: /shared-data/corpus
-              subPath: corpus
-            - name: shared-data
-              mountPath: /shared-data/aligned
-              subPath: aligned
+              mountPath: /shared-data
       volumes:
         - name: shared-data
           persistentVolumeClaim:

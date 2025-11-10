@@ -9,3 +9,4 @@ argon2-cffi
 oauthlib>=3.0.0
 gunicorn
 requests
+psycopg2

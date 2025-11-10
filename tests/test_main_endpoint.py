@@ -1,5 +1,4 @@
 import json
-import shutil
 import os
 import io
 import uuid
@@ -11,18 +10,7 @@ from flask.testing import FlaskClient
 from unittest.mock import patch, MagicMock, ANY
 from musictranslator.main import app
 
-# --- Constants and Global Mocks ---
-ACCESS_CODE = ''
-MOCK_VALID_ACCESS_CODES = {ACCESS_CODE}
-
 # --- Pytest Fixtures
-
-@pytest.fixture(autouse=True) # Apply to all tests in this module
-def auto_mock_valid_access_codes():
-    """Automatically mock VALID_ACCESS_CODES for all tests."""
-    with patch('musictranslator.main.VALID_ACCESS_CODES', MOCK_VALID_ACCESS_CODES):
-        yield
-
 @pytest.fixture
 def client():
     """
@@ -120,131 +108,138 @@ def test_translate_endpoint_post_success(
 ):
     """
     Test the /translate and /results endpoints
-    for a successful async translation, including F0 data
+    for a successful async translation
     """
-    audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
-    lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
-    # Update the mapped_result before running test with the new structure
-    expected_mapped_results_path = "data/mapped_results/BloodCalcification-SkinDeep.json"
+    # --- Mock the call to the auth service ---
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {'valid': True}
+    with patch('musictranslator.main.requests.get',
+               return_value=mock_response) as mock_requests_get:
+        audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
+        lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
+        # Update the mapped_result before running test with the new structure
+        expected_mapped_results_path = "data/mapped_results/BloodCalcification-SkinDeep.json"
 
-    audio_data = load_test_file(audio_file_path)
-    lyrics_data = load_test_file(lyrics_file_path)
-    expected_mapped_results = load_json_file(expected_mapped_results_path)
+        audio_data = load_test_file(audio_file_path)
+        lyrics_data = load_test_file(lyrics_file_path)
+        expected_mapped_results = load_json_file(expected_mapped_results_path)
 
-    mock_drum_analysis_data = {
-        "hits": [
-            {
-                "onset_time": 0.5,
-                "duration": 0.1,
-                "relative_volume": 0.123,
-                "dominant_frequency": 440.0,
-                "spectral_centroid": 500.0,
-                "spectral_rolloff": 1500.0,
-                "spectral_flux": 0.05,
-                "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
-                "drum_category": "snare",
-                "category_confidence": 0.94,
-                "drum_type": "open_band",
-                "type_confidence": 0.95,
-                "qualifier": "rimshot",
-                "qualifier_confidence": 0.99
-            },
-            {
-                "onset_time": 1.2,
-                "duration": 0.08,
-                "relative_volume": 0.098,
-                "dominant_frequency": 220.0,
-                "spectral_centroid": 300.0,
-                "spectral_rolloff": 1000.0,
-                "spectral_flux": 0.03,
-                "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
-                "drum_category": "kick",
-                "category_confidence": 0.99,
-                "drum_type": "bass",
-                "type_confidence": 0.98,
-                "qualifier": "no_qualifier",
-                "qualifier_confidence": 1.0
-            }
-        ],
-        "tempo": 180.0
-    }
-
-    data = {
-        'audio': (audio_data, os.path.basename(audio_file_path)),
-        'lyrics': (lyrics_data, os.path.basename(lyrics_file_path)),
-    }
-    headers = {'X-Access-Code': ACCESS_CODE}
-
-    # --- Phase 1: Test /translate endpoint (Job Enqueueing) ---
-    # Mock werkzeug's save to prevent actual file writes during this part of the test
-    # The files should be saved to the unique paths for the background worker
-    with patch('werkzeug.datastructures.FileStorage.save') as mock_file_save:
-        response_translate = client.post(
-            '/api/translate',
-            data=data,
-            content_type='multipart/form-data',
-            headers=headers
-        )
-
-    assert response_translate.status_code == 202, f"Response data: {response_translate.data.decode()}"
-    response_translate_json = response_translate.get_json()
-    enqueued_job_id = response_translate_json['job_id']
-    assert enqueued_job_id == mock_uuid_generator['test_job_id'] # Check our mocked UUID was used
-
-    # Assert file validation mocks were called
-    mock_file_validation['validate_audio'].assert_called_once()
-    mock_file_validation['validate_text'].assert_called_once()
-    # Assert that FileStorage.save was called for audio and lyrics
-    assert mock_file_save.call_count == 2
-
-    # Construct expected unique paths (these are passed to the background task)
-    expected_unique_audio_path = f"/shared-data/audio/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
-    expected_unique_lyrics_path = f"/shared-data/lyrics/{enqueued_job_id}_{os.path.basename(lyrics_file_path)}"
-
-    expected_audio_url = f"api/files/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
-    expected_harmonic_urls = {
-        "static_results_url": f"api/results/file/{enqueued_job_id}_harmonic.json",
-        "streaming_urls": {
-            "vocals": f"api/results/stream/{enqueued_job_id}_vocals.ndjson?stem_path=...",
-            "bass": f"api/results/stream/{enqueued_job_id}_bass.ndjson?stem_path=..."
+        mock_drum_analysis_data = {
+            "hits": [
+                {
+                    "onset_time": 0.5,
+                    "duration": 0.1,
+                    "relative_volume": 0.123,
+                    "dominant_frequency": 440.0,
+                    "spectral_centroid": 500.0,
+                    "spectral_rolloff": 1500.0,
+                    "spectral_flux": 0.05,
+                    "mfccs": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+                    "drum_category": "snare",
+                    "category_confidence": 0.94,
+                    "drum_type": "open_band",
+                    "type_confidence": 0.95,
+                    "qualifier": "rimshot",
+                    "qualifier_confidence": 0.99
+                },
+                {
+                    "onset_time": 1.2,
+                    "duration": 0.08,
+                    "relative_volume": 0.098,
+                    "dominant_frequency": 220.0,
+                    "spectral_centroid": 300.0,
+                    "spectral_rolloff": 1000.0,
+                    "spectral_flux": 0.03,
+                    "mfccs": [13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                    "drum_category": "kick",
+                    "category_confidence": 0.99,
+                    "drum_type": "bass",
+                    "type_confidence": 0.98,
+                    "qualifier": "no_qualifier",
+                    "qualifier_confidence": 1.0
+                }
+            ],
+            "tempo": 180.0
         }
-    }
 
-    expected_final_result = {
-        "mapped_result": expected_mapped_results,
-        "harmonic_analysis": expected_harmonic_urls,
-        "drum_analysis": mock_drum_analysis_data,
-        "audio_url": expected_audio_url,
-        "original_filename": "BloodCalcification-SkinDeep.wav"
-    }
+        data = {
+            'audio': (audio_data, os.path.basename(audio_file_path)),
+            'lyrics': (lyrics_data, os.path.basename(lyrics_file_path)),
+        }
+        valid_access_code = 'a-valid-code-from-auth-service'
+        headers = {'X-Access-Code': valid_access_code}
 
-    # Check how save was called (order might vary, check both calls)
-    saved_paths = [call_args[0][0] for call_args in mock_file_save.call_args_list]
-    assert expected_unique_audio_path in saved_paths
-    assert expected_unique_lyrics_path in saved_paths
+        # --- Phase 1: Test /translate endpoint (Job Enqueueing) ---
+        # Mock werkzeug's save to prevent actual file writes during this part of the test
+        # The files should be saved to the unique paths for the background worker
+        with patch('werkzeug.datastructures.FileStorage.save') as mock_file_save:
+            response_translate = client.post(
+                '/api/translate',
+                data=data,
+                content_type='multipart/form-data',
+                headers=headers
+            )
 
-    # Assert RQ enqueue was called correctly
-    mock_rq_components['get_queue'].assert_called_once()
-    mock_rq_components['queue'].enqueue.assert_called_once()
-    pos_args_enqueue, kw_args_enqueue = mock_rq_components['queue'].enqueue.call_args
-    assert pos_args_enqueue[0] == 'musictranslator.main.background_translation_task'
-    # Check arguments passed to the background task
-    expected_task_args = (
-        expected_unique_audio_path,
-        expected_unique_lyrics_path,
-        f"{enqueued_job_id}_{os.path.basename(audio_file_path)}",
-        os.path.basename(audio_file_path)
-    )
-    assert kw_args_enqueue.get('args') == expected_task_args
-    assert kw_args_enqueue.get('job_id') == enqueued_job_id
+        assert response_translate.status_code == 202, f"Response data: {response_translate.data.decode()}"
+        response_translate_json = response_translate.get_json()
+        enqueued_job_id = response_translate_json['job_id']
+        assert enqueued_job_id == mock_uuid_generator['test_job_id'] # Check our mocked UUID was used
 
-    # --- Phase 2: Test /results/<job_id> endpoint (successful Job Completion) ---
-    mock_job = mock_rq_components['job']
-    mock_job.is_finished = True
-    mock_job.is_failed = False
-    mock_job.result = expected_final_result
+        # Assert file validation mocks were called
+        mock_file_validation['validate_audio'].assert_called_once()
+        mock_file_validation['validate_text'].assert_called_once()
+        # Assert that FileStorage.save was called for audio and lyrics
+        assert mock_file_save.call_count == 2
 
-    response_results = client.get(f'/api/results/{enqueued_job_id}')
+        # Construct expected unique paths (these are passed to the background task)
+        expected_unique_audio_path = f"/shared-data/audio/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
+        expected_unique_lyrics_path = f"/shared-data/lyrics/{enqueued_job_id}_{os.path.basename(lyrics_file_path)}"
+
+        expected_audio_url = f"api/files/{enqueued_job_id}_{os.path.basename(audio_file_path)}"
+        expected_harmonic_urls = {
+            "static_results_url": f"api/results/file/{enqueued_job_id}_harmonic.json",
+            "streaming_urls": {
+                "vocals": f"api/results/stream/{enqueued_job_id}_vocals.ndjson?stem_path=...",
+                "bass": f"api/results/stream/{enqueued_job_id}_bass.ndjson?stem_path=..."
+            }
+        }
+
+        expected_final_result = {
+            "mapped_result": expected_mapped_results,
+            "harmonic_analysis": expected_harmonic_urls,
+            "drum_analysis": mock_drum_analysis_data,
+            "audio_url": expected_audio_url,
+            "original_filename": "BloodCalcification-SkinDeep.wav"
+        }
+
+        # Check how save was called (order might vary, check both calls)
+        saved_paths = [call_args[0][0] for call_args in mock_file_save.call_args_list]
+        assert expected_unique_audio_path in saved_paths
+        assert expected_unique_lyrics_path in saved_paths
+
+        # Assert RQ enqueue was called correctly
+        mock_rq_components['get_queue'].assert_called_once()
+        mock_rq_components['queue'].enqueue.assert_called_once()
+        pos_args_enqueue, kw_args_enqueue = mock_rq_components['queue'].enqueue.call_args
+        assert pos_args_enqueue[0] == 'musictranslator.main.background_translation_task'
+        # Check arguments passed to the background task
+        expected_task_args = (
+            expected_unique_audio_path,
+            expected_unique_lyrics_path,
+            f"{enqueued_job_id}_{os.path.basename(audio_file_path)}",
+            os.path.basename(audio_file_path)
+        )
+        assert kw_args_enqueue.get('args') == expected_task_args
+        assert kw_args_enqueue.get('job_id') == enqueued_job_id
+
+        # --- Phase 2: Test /results/<job_id> endpoint (successful Job Completion) ---
+        mock_job = mock_rq_components['job']
+        mock_job.is_finished = True
+        mock_job.is_failed = False
+        mock_job.result = expected_final_result
+
+        response_results = client.get(f'/api/results/{enqueued_job_id}')
 
     assert response_results.status_code == 200, f"Response data: {response_results.data.decode()}"
     response_results_json = response_results.get_json()
@@ -348,17 +343,18 @@ def test_translate_endpoint_missing_audio(client: FlaskClient, mock_rq_component
     """
     Test /translate endpoint with missing audio file
     """
-    lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
-    lyrics_data = load_test_file(lyrics_file_path)
-    data = {'lyrics': (lyrics_data, os.path.basename(lyrics_file_path))}
-    headers = {'X-Access-Code': ACCESS_CODE}
+    with patch('musictranslator.main.is_access_valid', return_value=True):
+        lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
+        lyrics_data = load_test_file(lyrics_file_path)
+        data = {'lyrics': (lyrics_data, os.path.basename(lyrics_file_path))}
+        headers = {'X-Access-Code': 'a-valid-code'}
 
-    response = client.post(
-        '/api/translate',
-        data=data,
-        content_type='multipart/form-data',
-        headers=headers
-    )
+        response = client.post(
+            '/api/translate',
+            data=data,
+            content_type='multipart/form-data',
+            headers=headers
+        )
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "Missing audio or lyrics file."}
@@ -368,16 +364,17 @@ def test_translate_endpoint_missing_lyrics(client: FlaskClient, mock_rq_componen
     """
     Test /translate endpoint with missing lyrics file
     """
-    audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
-    audio_data = load_test_file(audio_file_path)
-    data = {'audio': (audio_data, os.path.basename(audio_file_path))}
-    headers = {'X-Access-Code': ACCESS_CODE}
-    response = client.post(
-            '/api/translate',
-            data=data,
-            content_type='multipart/form-data',
-            headers=headers
-        )
+    with patch('musictranslator.main.is_access_valid', return_value=True):
+        audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
+        audio_data = load_test_file(audio_file_path)
+        data = {'audio': (audio_data, os.path.basename(audio_file_path))}
+        headers = {'X-Access-Code': 'a-valid-code'}
+        response = client.post(
+                '/api/translate',
+                data=data,
+                content_type='multipart/form-data',
+                headers=headers
+            )
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "Missing audio or lyrics file."}

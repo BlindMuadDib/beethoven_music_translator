@@ -36,6 +36,13 @@ COPY --from=builder /wheels /wheels/
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r /app/harmonic_service/requirements.txt \
     && rm -rf /wheels
 
+ENV OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMBA_NUM_THREADS=1 \
+    VECLIB_MAXIMUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1
+
 EXPOSE 20006
 
-CMD ["gunicorn", "--bind", "0.0.0.0:20006", "harmonic_service.app:app", "--workers", "1", "--timeout", "1200"]
+CMD ["gunicorn", "--workers", "1", "--threads", "4", "--timeout", "1200", "--bind", "0.0.0.0:20006", "harmonic_service.app:app"]

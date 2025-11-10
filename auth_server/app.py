@@ -1,9 +1,10 @@
 import os
 import secrets
 from logging import getLogger
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, render_template_string, request, flash, redirect, url_for, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from flask_security import Security, SQLAlchemyUserDatastore, UserMixin, RoleMixin, login_required, roles_required
+from flask_security import Security, SQLAlchemyUserDatastore, UserMixin, RoleMixin, login_required, roles_required, current_user
 from flask_security.signals import user_registered
 from flask_security.forms import RegisterFormV2
 from wtforms import StringField
@@ -104,7 +105,22 @@ def create_app(testing=False):
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
     else:
         app.config['SECURITY_TWO_FACTOR_REQUIRED'] = True
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
+
+        # Build the PostgresSQL connection string from environment variables
+        db_user = os.environ.get('POSTGRES_USER')
+        db_pass = os.environ.get('POSTGRES_PASSWORD')
+        db_host = os.environ.get('POSTGRES_HOST')
+        db_name = os.environ.get('POSTGRES_DB')
+
+        if not all([db_user, db_pass, db_host, db_name]):
+            # Log a fatal error if the database isn't configured
+            log.critical("FATAL: Database environment variables not set!")
+            # This will cause the app to crash on startup, which is
+            # a good thing (fail fast)
+            raise ValueError("Missing POSTGRES environment variables")
+
+        app.config['SQLALCHEMY_DATABASE_URI'] = \
+            f"postgresql://{db_user}:{db_pass}@{db_host}:5432/{db_name}"
 
     # --- Flask-Security Configuration ---
     # Unify login error messages to prevent user enumeration and match test
@@ -116,6 +132,7 @@ def create_app(testing=False):
 
     app.config['SECURITY_REGISTERABLE'] = True
     app.config['SECURITY_SEND_REGISTER_EMAIL'] = False
+    app.config['SECURITY_URL_PREFIX'] = '/auth'
     app.config['SECURITY_CHANGEABLE'] = True
     app.config['SECURITY_RECOVERABLE'] = True
     app.config['SECURITY_TWO_FACTOR'] = True
@@ -129,6 +146,11 @@ def create_app(testing=False):
             'consumer_secret': os.environ.get('GOOGLE_CLIENT_SECRET', 'dummy_secret'),
         }
     }
+
+    # Make the app aware of the /auth prefix from the Ingress
+    # It will use the X-Forwarded-Prefix header set by the Ingress controller
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1,
+                            x_host=1, x_prefix=1)
 
     db.init_app(app)
     security = Security(app, user_datastore,
@@ -151,14 +173,18 @@ def create_app(testing=False):
                 )
             db.session.commit()
 
-    # Only set up the database automatically if NOT testing.
-    # The test suite will manage its own database
-    if not is_testing:
-        with app.app_context():
-            setup_database(app)
+    # # Only set up the database automatically if NOT testing.
+    # # The test suite will manage its own database
+    # if not is_testing:
+    #     with app.app_context():
+    #         setup_database(app)
+    # This is incompatible with integration testing so it is temporarily
+    # allowed during testing. Must be addressed before CI/CD
+    with app.app_context():
+        setup_database(app)
 
     # --- Views ---
-    @app.route('/')
+    @app.route('/auth')
     def index():
         return render_template_string("""
             <h1>Welcome!</h1>
@@ -174,7 +200,7 @@ def create_app(testing=False):
             {% endif %}
         """)
 
-    @app.route('/request-access', methods=['GET', 'POST'])
+    @app.route('/auth/request-access', methods=['GET', 'POST'])
     def request_access():
         if request.method == 'POST':
             email = request.form.get('email')
@@ -208,13 +234,22 @@ def create_app(testing=False):
             </form>
         """)
 
+    @app.route('/auth/user/profile', methods=['GET'])
+    @login_required
+    def user_profile():
+        """Provides user info if logged in."""
+        return jsonify({
+            "email": current_user.email,
+            # Add any other user details the frontend should have here
+        })
+
     # --- Admin Panel ---
     @app.route('/admin/')
     @roles_required('admin')
     def admin_index():
         return "<h1>Admin Panel</h1><p><a href='/admin/requests'>View Access Requests</a></p>"
 
-    @app.route('/admin/requests')
+    @app.route('/auth/admin/requests')
     @roles_required('admin')
     def admin_requests():
         requests = AccessRequest.query.order_by(AccessRequest.approved.asc()).all()
@@ -232,7 +267,7 @@ def create_app(testing=False):
                     <td{{ 'Approved' if req.approved else 'Pending' }}</td>
                     <td>
                         {% if not req.approved %}
-                        <form method="POST" action="/admin/approve/{{ req.id }}">
+                        <form method="POST" action="{{ url_for('admin_approve', req_id=req.id) }}">
                             <button type="submit">Approve</button>
                         </form>
                         {% endif %}
@@ -242,7 +277,7 @@ def create_app(testing=False):
             </table>
         """, requests=requests)
 
-    @app.route('/admin/approve/<int:req_id>', methods=['POST'])
+    @app.route('/auth/admin/approve/<int:req_id>', methods=['POST'])
     @roles_required('admin')
     def admin_approve(req_id):
         req = db.get_or_404(AccessRequest, req_id)
@@ -267,6 +302,44 @@ def create_app(testing=False):
             req.user_id = user.id
             db.session.commit()
 
+    # --- Internal Endpoints ---
+    @app.route('/internal/validate-session')
+    def internal_validate_session():
+        """
+        An internal endpoint for other services to validate a session cookie.
+        Relies on the session cookie being forwarded in the request.
+        """
+        # Flask-Security's `current_user` is loaded based on the session
+        # cookie. If the user is authenticated, the cookie was valid.
+        if current_user.is_authenticated:
+            log.info("Internal session validation success for user: %s",
+                     current_user.email)
+            return jsonify({"valid": True})
+
+        log.info("Internal session validation failed: No authenticated user")
+        return jsonify({"valid": False})
+
+    @app.route('/internal/validate-access-code/<string:access_code>')
+    def internal_validate_access_code(access_code):
+        """
+        An internal endpoint for other services to validate an access code.
+        Checks if the code exists, is approved, and has not yet been used to
+        create an account
+        Codes persist after account creation so a user doesn't need to log-in
+        to submit a translation request
+        """
+        log.info(f"Internal validation request for code: {access_code}")
+        req = AccessRequest.query.filter_by(access_code=access_code,
+                                           approved=True).first()
+        if req:
+            log.info(f"Code {access_code} is valid.")
+            return jsonify({"valid": True})
+
+        log.warning(f"Code {access_code} is NOT valid.")
+        # Return a 200 OK with valid: False, as 404 might be ambiguous
+        # (service down vs. code not found)
+        return jsonify({"valid": False})
+
     # --- TESTING-ONLY ENDPOINTS ---
     if is_testing:
         @app.route('/_reset_db', methods=['POST'])
@@ -275,7 +348,7 @@ def create_app(testing=False):
             setup_database(app)
             return "Database reset!", 200
 
-        @app.route('/_get_access_code/<email>', methods=['GET'])
+        @app.route('/auth/_get_access_code/<email>', methods=['GET'])
         def get_access_code(email):
             # Only return the access code if the request is approved AND has
             # a code.
@@ -284,6 +357,14 @@ def create_app(testing=False):
             if req and req.access_code:
                 return jsonify({"access_code": req.access_code})
             return jsonify({"error": "Not found"}), 404
+
+        @app.route('/auth/_get_request_id/<email>', methods=['GET'])
+        def get_request_id(email):
+            """Returns the reqest ID for a given email."""
+            req = AccessRequest.query.filter_by(email=email).first()
+            if req:
+                return jsonify({"request_id": req.id})
+            return jsonify({"error": "Request not found for email"}), 404
 
     return app
 

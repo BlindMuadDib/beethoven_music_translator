@@ -4,17 +4,28 @@ kind: Ingress
 metadata:
   name: musictranslator-ingress
   annotations:
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-body-size: "60m"
-    nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
+    ingress.cilium.io/proxy-max-request-size: "60m"
+    ingress.cilium.io/redirect-from-www: "true"
+    # This annotation applies the rewrite rule to the path matched by the
+    # ImplementationSpecific rule.
+    # ingress.cilium.io/path-rewrite: "/auth/(.*) /\\1"
 spec:
-  ingressClassName: nginx
+  ingressClassName: cilium
   rules:
   - host: musictranslator.org
     http:
       paths:
+      #1. AUTH SERVICE RULE - Highest Priority!
+      # This uses ImplementationSpecific and the global path-rewrite annotation
+      # to strip the /auth prefix before forwarding to the Flask service
+      - path: /auth
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8443
+      # 2. API RULES
       - path: /api/harmonic
         pathType: Prefix
         backend:
@@ -26,9 +37,9 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: beethoven-service
+            name: translator-service
             port:
-              number: 80
+              number: 20005
       - path: /api
         pathType: Prefix
         backend:
@@ -36,13 +47,14 @@ spec:
             name: translator-service
             port:
               number: 20005
+      # 3. ROOT/FRONTEND CATCH-ALL RULE - Lowest Priority
       - path: /
         pathType: Prefix
         backend:
           service:
             name: beethoven-service
             port:
-              number: 80
+              number: 8443
   tls:
   - hosts:
       - musictranslator.org

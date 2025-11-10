@@ -41,4 +41,4 @@ COPY data_backend/drum_sample_features.json /app/data_backend/drum_sample_featur
 
 EXPOSE 25491
 
-CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:25941", "--timeout", "1200", "drum_analysis_service.app:app"]
+CMD ["gunicorn", "-w", "1", "--threads", "4", "-b", "0.0.0.0:25941", "--timeout", "1200", "drum_analysis_service.app:app"]

@@ -2,14 +2,46 @@ import { TimeSeriesAccessor } from './player/TimeSeriesAccessor.js'
 import { calculateTotalFrames } from './utils.js';
 
 /**
+ * Checks the user's current authentication status with the server.
+ * @returns {Promise<object>} A promise that resolves with auth data,
+ * e.g., { isAuthenticated: true, user: { email: '...' } } or { isAuthenticated: false }
+ */
+export async function checkAuthStatus() {
+    try {
+        // This endpoint is protected by a session cookie. The browser sends
+        // it automatically. The auth service will determine if a valid
+        // session exists.
+        const response = await fetch('/auth/user/profile');
+        if (response.ok) {
+            const userData = await response.json();
+            return { isAuthenticated: true, user: userData };
+        }
+        // For 401 Unauthorized or other non-ok statuses, treat as not
+        // authenticated
+        return { isAuthenticated: false };
+    } catch (error) {
+        console.error("Auth status check failed:", error);
+        // In case of a network error, assume the user is not authenticated
+        return { isAuthenticated: false };
+    }
+}
+
+/**
  * Handles the form submission.
  * @param {FormData} formData - The form data to submit.
- * @param {string} accessCode - The user's access code.
+ * @param {string} accessCode - The user's access code (can be null if logged in).
  * @returns {Promise<object>} - A promise that resolves to the job initiation data.
  */
 export async function submitJob(formData, accessCode) {
-    const response = await fetch(`/api/translate?access_code=${accessCode}`, {
+    // Use headers for the access code. `fetch` sends session cookies automatically
+    const headers = {};
+    if (accessCode) {
+        headers['X-Access-Code'] = accessCode;
+    }
+
+    const response = await fetch('/api/translate', {
         method: 'POST',
+        headers: headers,
         body: formData,
     });
 

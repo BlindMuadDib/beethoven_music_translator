@@ -40,8 +40,36 @@ describe('API Module', () => {
         jest.restoreAllMocks();
     });
 
+    describe('checkAuthStatus', () => {
+        test('should return isAuthenticated: true and user data on success', async () => {
+            const mockUser = { email: 'test@example.com' };
+            fetch.mockResolvedValueOnce({
+                ok: true,
+                json: async () => mockUser,
+            });
+
+            const result = await API.checkAuthStatus();
+
+            expect(fetch).toHaveBeenCalledWith('/auth/user/profile');
+            expect(result).toEqual({ isAuthenticated: true, user: mockUser });
+        });
+
+        test('should return isAuthenticated: false on non-ok response', async () => {
+            fetch.mockResolvedValueOnce({ ok: false, status: 401 });
+            const result = await API.checkAuthStatus();
+            expect(result).toEqual({ isAuthenticated: false });
+        });
+
+        test('should return isAuthenticated: false on fetch network error', async () => {
+            fetch.mockRejectedValueOnce(new Error('Network failure'));
+            const result = await API.checkAuthStatus();
+            expect(result).toEqual({ isAuthenticated: false });
+            expect(consoleErrorSpy).toHaveBeenCalledWith("Auth status check failed:", expect.any(Error));
+        });
+    });
+
     describe('submitJob', () => {
-        test('should POST form data and return job data', async () => {
+        test('should POST with X-Access-Code header and return job data', async () => {
             const jobData = { job_id: '123-abc' };
             // Mock the fetch call to return a successful response
             fetch.mockResolvedValueOnce({
@@ -55,13 +83,28 @@ describe('API Module', () => {
             const result = await API.submitJob(mockFormData, mockAccessCode);
 
             // Check that fetch was called correctly
-            expect(fetch).toHaveBeenCalledWith(`/api/translate?access_code=${mockAccessCode}`, {
+            expect(fetch).toHaveBeenCalledWith('/api/translate', {
                 method: 'POST',
+                headers: { 'X-Access-Code': 'test_code' },
                 body: mockFormData,
             });
 
             // Check that the function returned the correct data
             expect(result).toEqual(jobData);
+        });
+
+        test('shoud POST without header if accessCode is null or empty', async () => {
+            const jobData = { job_id: '987-zyx' };
+            fetch.mockResolvedValueOnce({ ok: true, json: async () => jobData });
+            const mockFormData = new FormData();
+
+            await API.submitJob(mockFormData, null);
+
+            expect(fetch).toHaveBeenCalledWith('/api/translate', {
+                method: 'POST',
+                headers: {},
+                body: mockFormData,
+            });
         });
 
         test('should throw an error on a failed request', async () => {
