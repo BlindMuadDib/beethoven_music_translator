@@ -624,7 +624,6 @@ class TestIntegration(unittest.TestCase):
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
         }
-
         response = requests.post(
             target_url,
             files=files,

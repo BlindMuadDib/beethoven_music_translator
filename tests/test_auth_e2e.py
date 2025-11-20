@@ -115,6 +115,7 @@ def build_and_run_container(podman_client):
     while True:
         try:
             response = requests.get(BASE_URL + '/auth/login')
+
             if response.status_code == 200:
                 print("Container is responsive!")
                 break
