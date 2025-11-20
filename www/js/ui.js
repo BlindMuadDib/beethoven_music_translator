@@ -12,11 +12,11 @@ export function cacheDOMElements(){
     uiElements.playerUI = document.getElementById('player-ui-container');
     uiElements.statusMessage = document.getElementById('status-message');
     uiElements.submitButton = document.getElementById('submit-button');
+    uiElements.localFileInput = document.getElementById('local-file-input');
+    uiElements.localAudioInput = document.getElementById('local-audio-input');
     uiElements.loggedInView = document.getElementById('logged-in-view');
     uiElements.loggedOutView = document.getElementById('logged-out-view');
     uiElements.userGreeting = document.getElementById('user-greeting');
-    uiElements.accessCodeContainer = document.getElementById('access-code-container');
-    uiElements.accessCodeInput = document.getElementById('access_code');
 }
 
 /**
@@ -25,9 +25,9 @@ export function cacheDOMElements(){
  * e.g., { isAuthenticated: boolean, user?: { email: string } }
  */
 export function updateAuthUI(authStatus) {
-    const { loggedInView, loggedOutView, userGreeting, accessCodeContainer, accessCodeInput } = uiElements;
+    const { loggedInView, loggedOutView, userGreeting } = uiElements;
 
-    if (!loggedInView || !loggedOutView || !userGreeting || !accessCodeInput) {
+    if (!loggedInView || !loggedOutView || !userGreeting) {
         console.error("Authentication UI elements not found in the DOM.");
         return;
     }
@@ -38,16 +38,10 @@ export function updateAuthUI(authStatus) {
         loggedOutView.style.display = 'none';
         userGreeting.textContent = `Welcome, ${authStatus.user?.email || 'User'}`;
 
-        if (accessCodeContainer) accessCodeContainer.style.display = 'none';
-        accessCodeInput.required = false;
-
     } else {
         // User is logged out, show the default view
         loggedInView.style.display = 'none';
         loggedOutView.style.display = 'flex';
-
-        if (accessCodeContainer) accessCodeContainer.style.display = 'block';
-        accessCodeInput.required = true;
     }
 }
 

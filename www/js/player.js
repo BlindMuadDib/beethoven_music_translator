@@ -13,6 +13,15 @@ function createBufferManager(visualizer, audioPlayer) {
     const accessors = Object.values(visualizer.streamAccessors);
     if (accessors.length === 0) return { start: () => {}, stop: () => {} };
 
+    // --- USER UPLOAD CHECK ---
+    // If the accessors are not URL-based, the data is already in memory.
+    // No buffering is needed.
+    if (accessors[0] && !accessors[0].isUrlSource) {
+        console.log('[BufferManager] Data is pre-loaded. Buuffering disabled.');
+        // Still return timePerFrame as it's used by the 'seeked' event
+        return { start: () => {}, stop: () => {}, timePerFrame: accessors[0].timePerFrame };
+    }
+
     // Assume all accessors have the same chunking properties
     const totalChunks = Math.ceil(accessors[0].totalElements / accessors[0].chunkSize);
     const timePerFrame = accessors[0].timePerFrame;

@@ -29,19 +29,11 @@ export async function checkAuthStatus() {
 /**
  * Handles the form submission.
  * @param {FormData} formData - The form data to submit.
- * @param {string} accessCode - The user's access code (can be null if logged in).
  * @returns {Promise<object>} - A promise that resolves to the job initiation data.
  */
-export async function submitJob(formData, accessCode) {
-    // Use headers for the access code. `fetch` sends session cookies automatically
-    const headers = {};
-    if (accessCode) {
-        headers['X-Access-Code'] = accessCode;
-    }
-
+export async function submitJob(formData) {
     const response = await fetch('/api/translate', {
         method: 'POST',
-        headers: headers,
         body: formData,
     });
 

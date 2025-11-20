@@ -39,13 +39,24 @@
                 <div>
                     <label for="lyrics">Lyrics File (.txt):</label>
                     <input type="file" id="lyrics" name="lyrics" accept="text/plain" required>
-                </div>
-                <div id="access-code-container">
-                    <label for="access_code">Access Code:</label>
-                    <input type="text" id="access_code" name="access_code">
-                </div>
                 <button type="submit" id="submit-button">Translate</button>
             </form>
+
+            <div class="local-upload-container">
+                <p><strong>Or, upload local files:</strong></p>
+                <div>
+                    <label for="local-file-input" class="local-upload-label">
+                        1. Upload Translation File (.mtr)
+                    </label>
+                    <input type="file" id="local-file-input" accept=".mtr,.zip">
+                </div>
+                <div>
+                    <label for="local-audio-input" class="local-upload-label">
+                        2. Upload Audio File (.wav)
+                    </label>
+                    <input type="file" id="local-audio-input" accept="audio/wav">
+                </div>
+            </div>
         </div>
         <div id="status-message" style="display: none; margin-top: 1em;"></div>
         <div id="loading-indicator" style="display: none;">Processing... Please wait. This may take several minutes.</div>
@@ -53,7 +64,7 @@
         <div id="result-display" style="display: none;"></div><hr style="margin-top: 30px;">
         <p>Source code: <a href="https://github.com/BlindMuadDib/beethoven_music_translator" target="_blank">GitHub Repository</a></p>
         <p>Email us at info@musictranslator.org with any questions! Bugs and feature requests can be submitted to GitHub. If you don't have an account, our info email is fine too.</p>
-        <p>We need training data, so if you own the rights to music and/or lyrics, please let us know at admin@musictranslator.org!</p>
+        <p>We need training data, so if you own the rights to music, please let us know at admin@musictranslator.org!</p>
     </div>
 
     <div id="player-ui-container">

@@ -69,7 +69,7 @@ describe('API Module', () => {
     });
 
     describe('submitJob', () => {
-        test('should POST with X-Access-Code header and return job data', async () => {
+        test('should POST FormData to /api/translate and return job data', async () => {
             const jobData = { job_id: '123-abc' };
             // Mock the fetch call to return a successful response
             fetch.mockResolvedValueOnce({
@@ -78,33 +78,17 @@ describe('API Module', () => {
             });
 
             const mockFormData = new FormData();
-            const mockAccessCode = 'test_code';
 
-            const result = await API.submitJob(mockFormData, mockAccessCode);
+            const result = await API.submitJob(mockFormData);
 
             // Check that fetch was called correctly
             expect(fetch).toHaveBeenCalledWith('/api/translate', {
                 method: 'POST',
-                headers: { 'X-Access-Code': 'test_code' },
                 body: mockFormData,
             });
 
             // Check that the function returned the correct data
             expect(result).toEqual(jobData);
-        });
-
-        test('shoud POST without header if accessCode is null or empty', async () => {
-            const jobData = { job_id: '987-zyx' };
-            fetch.mockResolvedValueOnce({ ok: true, json: async () => jobData });
-            const mockFormData = new FormData();
-
-            await API.submitJob(mockFormData, null);
-
-            expect(fetch).toHaveBeenCalledWith('/api/translate', {
-                method: 'POST',
-                headers: {},
-                body: mockFormData,
-            });
         });
 
         test('should throw an error on a failed request', async () => {

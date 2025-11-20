@@ -13,6 +13,7 @@ const mockHarmonicVisualizerInstance = {
             chunkSize: 10,
             chunks: new Map(),
             timePerFrame: 512 / 22050,
+            isUrlSource: true // Explicitly set this to true for buffer tests
         }
     },
     isBuffering: false,
