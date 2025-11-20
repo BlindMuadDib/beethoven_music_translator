@@ -111,11 +111,9 @@ def test_translate_endpoint_post_success(
     for a successful async translation
     """
     # --- Mock the call to the auth service ---
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {'valid': True}
-    with patch('musictranslator.main.requests.get',
-               return_value=mock_response) as mock_requests_get:
+    with patch('musictranslator.main.is_session_valid',
+               return_value=True) as mock_session_valid:
+
         audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
         lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
         # Update the mapped_result before running test with the new structure
@@ -167,21 +165,23 @@ def test_translate_endpoint_post_success(
             'audio': (audio_data, os.path.basename(audio_file_path)),
             'lyrics': (lyrics_data, os.path.basename(lyrics_file_path)),
         }
-        valid_access_code = 'a-valid-code-from-auth-service'
-        headers = {'X-Access-Code': valid_access_code}
 
         # --- Phase 1: Test /translate endpoint (Job Enqueueing) ---
         # Mock werkzeug's save to prevent actual file writes during this part of the test
         # The files should be saved to the unique paths for the background worker
         with patch('werkzeug.datastructures.FileStorage.save') as mock_file_save:
+            # Set the session cookie on the client
+            client.set_cookie('session', 'a-valid-session-cookie')
             response_translate = client.post(
                 '/api/translate',
                 data=data,
-                content_type='multipart/form-data',
-                headers=headers
+                content_type='multipart/form-data'
             )
 
         assert response_translate.status_code == 202, f"Response data: {response_translate.data.decode()}"
+        # Assert session validation was called
+        mock_session_valid.assert_called_once_with('a-valid-session-cookie')
+
         response_translate_json = response_translate.get_json()
         enqueued_job_id = response_translate_json['job_id']
         assert enqueued_job_id == mock_uuid_generator['test_job_id'] # Check our mocked UUID was used
@@ -249,6 +249,34 @@ def test_translate_endpoint_post_success(
     assert response_results_json["result"] == expected_final_result
 
     mock_rq_components['job_fetch'].assert_called_once_with(enqueued_job_id, connection=mock_rq_components['redis_conn'])
+
+def test_translate_endpoint_unauthenticated(client: FlaskClient,
+                                            mock_rq_components):
+    """
+    Test /translate endpoint with a no session cookie.
+    """
+    # No patch for is_session_valid, or patch it to return False
+    with patch('musictranslator.main.is_session_valid', return_value=False) as mock_session_valid:
+        audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
+        lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
+        audio_data = load_test_file(audio_file_path)
+        lyrics_data = load_test_file(lyrics_file_path)
+
+        data = {
+            'audio': (audio_data, os.path.basename(audio_file_path)),
+            'lyrics': (lyrics_data, os.path.basename(lyrics_file_path))
+        }
+
+        response = client.post(
+            '/api/translate',
+            data=data,
+            content_type='multipart/form-data'
+        )
+
+        assert response.status_code == 401
+        assert response.get_json() == {"error": "Access Denied. Please log in."}
+        # Ensure no job was enqueued
+        mock_rq_components['queue'].enqueue.assert_not_called()
 
 def test_serve_results_file_success(client: FlaskClient):
     """
@@ -343,17 +371,16 @@ def test_translate_endpoint_missing_audio(client: FlaskClient, mock_rq_component
     """
     Test /translate endpoint with missing audio file
     """
-    with patch('musictranslator.main.is_access_valid', return_value=True):
+    with patch('musictranslator.main.is_session_valid', return_value=True):
         lyrics_file_path = "data/lyrics/BloodCalcification-SkinDeep.txt"
         lyrics_data = load_test_file(lyrics_file_path)
         data = {'lyrics': (lyrics_data, os.path.basename(lyrics_file_path))}
-        headers = {'X-Access-Code': 'a-valid-code'}
 
+        client.set_cookie('session', 'a-valid-session-cookie')
         response = client.post(
             '/api/translate',
             data=data,
-            content_type='multipart/form-data',
-            headers=headers
+            content_type='multipart/form-data'
         )
 
     assert response.status_code == 400
@@ -364,16 +391,16 @@ def test_translate_endpoint_missing_lyrics(client: FlaskClient, mock_rq_componen
     """
     Test /translate endpoint with missing lyrics file
     """
-    with patch('musictranslator.main.is_access_valid', return_value=True):
+    with patch('musictranslator.main.is_session_valid', return_value=True):
         audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
         audio_data = load_test_file(audio_file_path)
         data = {'audio': (audio_data, os.path.basename(audio_file_path))}
-        headers = {'X-Access-Code': 'a-valid-code'}
+
+        client.set_cookie('session', 'a-valid-session-cookie')
         response = client.post(
                 '/api/translate',
                 data=data,
-                content_type='multipart/form-data',
-                headers=headers
+                content_type='multipart/form-data'
             )
 
     assert response.status_code == 400

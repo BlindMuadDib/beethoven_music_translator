@@ -8,9 +8,7 @@ Basic requirements for beta authenticator server:
     Admins must 2FA with Google Authenticator App
     Allow users to request access with an email address
     An admin must approve requests before an access code is sent to the email
-    Allow users with an access code to make an account (username & password)
-    Stores access code information with email address and if applicable username and hashed password
-    Only admin can access user and access code data
+    Only admin can access user data
     Implement OAuth
 
 Use Flask-Security "pip install -U Flask-Security" for:
@@ -24,7 +22,7 @@ Use SQLAlchemy for the user database.
 import unittest
 from unittest.mock import patch
 from flask import Flask
-from auth_server.app import create_app, db, user_datastore, AccessRequest
+from auth_server.app import create_app, db, user_datastore, AccessRequest, setup_database
 
 class TestAuthAccessServer(unittest.TestCase):
 
@@ -39,13 +37,16 @@ class TestAuthAccessServer(unittest.TestCase):
         self.addCleanup(self.app_context.pop)
 
         db.create_all()
+        setup_database(self.app)
+
         self.client = self.app.test_client()
 
-        # Create roles
-        self.admin_role = user_datastore.create_role(name='admin', description='Full access')
-        self.user_role = user_datastore.create_role(name='account_holder', description='Account holder access')
+        # Roles are created by setup_database, they just need to be found
+        self.admin_role = user_datastore.find_role('admin')
+        self.user_role = user_datastore.find_role('account_holder')
 
-        # Create users
+        # Create test-specific users
+        # Note: setup_database already created 'admin@musictranslator.org'
         self.admin_user = user_datastore.create_user(email='admin@test.com',
                                                      password='password',
                                                      roles=[self.admin_role],
@@ -63,27 +64,27 @@ class TestAuthAccessServer(unittest.TestCase):
 
     def login(self, email, password):
         """Helped function to log in a user."""
-        return self.client.post('/login', data=dict(
+        return self.client.post('/auth/login', data=dict(
             email=email,
             password=password
         ), follow_redirects=True)
 
     def logout(self):
         """Helper function to log out."""
-        return self.client.get('/logout', follow_redirects=True)
+        return self.client.get('/auth/logout', follow_redirects=True)
 
     def test_rbac(self):
         """
         Test Role Based Access Control for the admin panel.
         """
         self.login('admin@test.com', 'password')
-        response = self.client.get('/admin', follow_redirects=True)
+        response = self.client.get('/auth/admin', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'Admin', response.data)
         self.logout()
 
         self.login('user@test.com', 'password')
-        response = self.client.get('/admin', follow_redirects=True)
+        response = self.client.get('/auth/admin', follow_redirects=True)
         self.assertEqual(response.status_code, 403) # Forbidden
         self.logout()
 
@@ -98,14 +99,14 @@ class TestAuthAccessServer(unittest.TestCase):
         admin = user_datastore.find_user(email='admin@test.com')
         self.assertTrue(admin.tf_primary_method is None) # Initially no 2FA is setup
 
-    @patch('auth_server.app.send_access_code_email')
-    def test_access_code_request_and_approval(self, mock_send_email):
+    @patch('auth_server.app.send_approval_email')
+    def test_access_request_and_approval(self, mock_send_email):
         """
-        Test access code request and admin approval workflow.
+        Test access request and admin approval workflow.
         """
         # User requests access
         response = self.client.post(
-            '/request-access',
+            '/auth/request-access',
             data={'email': 'new_user@test.com'},
             follow_redirects=True
         )
@@ -118,7 +119,7 @@ class TestAuthAccessServer(unittest.TestCase):
         # Admin approves request
         self.login('admin@test.com', 'password')
         response = self.client.post(
-            f'/admin/approve/{request.id}',
+            f'/auth/admin/approve/{request.id}',
             follow_redirects=True
         )
         self.assertEqual(response.status_code, 200)
@@ -126,47 +127,45 @@ class TestAuthAccessServer(unittest.TestCase):
 
         db.session.refresh(request)
         self.assertTrue(request.approved)
-        self.assertIsNotNone(request.access_code)
 
         # Verify email was sent
-        mock_send_email.assert_called_once_with('new_user@test.com',
-                                                request.access_code)
+        mock_send_email.assert_called_once_with('new_user@test.com')
         self.logout()
 
-    def test_access_code_security(self):
+    def test_access_request_security(self):
         """
-        Tests that only the admin can view the list of access code requests
+        Tests that only the admin can view the list of access requests
         """
         self.client.post(
-            '/request-access',
+            '/auth/request-access',
             data={'email': 'another@test.com'},
             follow_redirects=True
         )
 
         # Admin can view
         self.login('admin@test.com', 'password')
-        response = self.client.get('/admin/requests')
+        response = self.client.get('/auth/admin/requests')
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'another@test.com', response.data)
         self.logout()
 
         # Regular user cannot view
         self.login('user@test.com', 'password')
-        response = self.client.get('/admin/requests')
+        response = self.client.get('/auth/admin/requests')
         self.assertEqual(response.status_code, 403)
 
-    def test_access_code_approval_security(self):
+    def test_access_approval_security(self):
         """
-        Tests that only an admin can approve an access code request.
+        Tests that only an admin can approve an access request.
         """
-        response = self.client.post('/request-access',
+        response = self.client.post('/auth/request-access',
                                     data={'email': 'third@test.com'})
         request = AccessRequest.query.filter_by(email='third@test.com').first()
 
         # Regular user cannot approve
         self.login('user@test.com', 'password')
         response = self.client.post(
-            f'/admin/approve/{request.id}',
+            f'/auth/admin/approve/{request.id}',
             follow_redirects=True
         )
         self.assertEqual(response.status_code, 403)
@@ -179,7 +178,7 @@ class TestAuthAccessServer(unittest.TestCase):
         """
         # First request should succeed
         response1 = self.client.post(
-            '/request-access',
+            '/auth/request-access',
             data={'email': 'single_request@test.com'},
             follow_redirects=True
         )
@@ -189,7 +188,7 @@ class TestAuthAccessServer(unittest.TestCase):
         # A second request with the same email should not create a new entry
         # and should inform the user
         response2 = self.client.post(
-            '/request-access',
+            '/auth/request-access',
             data={'email': 'single_request@test.com'},
             follow_redirects=True
         )
@@ -203,23 +202,21 @@ class TestAuthAccessServer(unittest.TestCase):
         ).all()
         self.assertEqual(len(requests), 1)
 
-    def test_create_account(self):
+    def test_create_account_with_approval(self):
         """
-        Tests that users who have a valid access code can create an account.
+        Tests that users who have been approved can create an account.
         """
         req = AccessRequest(
             email='approved@test.com',
-            approved=True,
-            access_code='VALIDCODE123'
+            approved=True
         )
         db.session.add(req)
         db.session.commit()
 
-        response = self.client.post('/register', data={
+        response = self.client.post('/auth/register', data={
             'email': 'approved@test.com',
             'password': 'newpassword',
-            'password_confirm': 'newpassword',
-            'access_code': 'VALIDCODE123'
+            'password_confirm': 'newpassword'
         }, follow_redirects=True)
 
         self.assertEqual(response.status_code, 200) # Should land on post-register/login page
@@ -227,43 +224,44 @@ class TestAuthAccessServer(unittest.TestCase):
         self.assertIsNotNone(new_user)
         self.assertTrue(new_user.is_active)
 
-    def test_no_access_code_no_account(self):
+    def test_registration_validation(self):
         """
-        Test that without a valid access code, an account cannot be created
+        Test that registration fails without a valid, approved AccessRequest
         """
-        # Invalid code
-        response = self.client.post('/register', data={
-            'email': 'badcode@test.com',
-            'password': 'password',
-            'password_confirm': 'password',
-            'access_code': 'INVALIDCODE'
-        }, follow_redirects=True)
-        self.assertIn(b'Invalid access code or email', response.data)
-        self.assertIsNone(user_datastore.find_user(email='badcode@test.com'))
-
-        # Missing code
-        response = self.client.post('/register', data={
-            'email': 'nocode@test.com',
+        # 1. No AccessRequest at all
+        response = self.client.post('/auth/register', data={
+            'email': 'no_request@test.com',
             'password': 'password',
             'password_confirm': 'password'
         }, follow_redirects=True)
-        self.assertIn(b'Access Code is required', response.data)
-        self.assertIsNone(user_datastore.find_user(email='nocode@test.com'))
+        self.assertIn(b'You must request access before registering', response.data)
+        self.assertIsNone(user_datastore.find_user(email='no_request@test.com'))
+
+        # 2. AccessRequest exists but is not approved
+        req = AccessRequest(email='unapproved@test.com', approved=False)
+        db.session.add(req)
+        db.session.commit()
+
+        response = self.client.post('/auth/register', data={
+            'email': 'unapproved@test.com',
+            'password': 'password',
+            'password_confirm': 'password'
+        }, follow_redirects=True)
+        self.assertIn(b'Your access request has not been approved yet', response.data)
+        self.assertIsNone(user_datastore.find_user(email='unapproved@test.com'))
 
     def test_database_stores_information(self):
         """
         Test that the database correctly stores user and access request info.
         """
-        req = AccessRequest(email='dbtest@test.com', approved=True,
-                            access_code='DBTESTCODE')
+        req = AccessRequest(email='dbtest@test.com', approved=True)
         db.session.add(req)
         db.session.commit()
 
-        self.client.post('/register', data={
+        self.client.post('/auth/register', data={
             'email': 'dbtest@test.com',
             'password': 'newpassword',
-            'password_confirm': 'newpassword',
-            'access_code': 'DBTESTCODE'
+            'password_confirm': 'newpassword'
         })
 
         user = user_datastore.find_user(email='dbtest@test.com')
@@ -280,5 +278,5 @@ class TestAuthAccessServer(unittest.TestCase):
         """
         self.assertIn('google', self.app.config['SECURITY_OAUTH_CONFIG'])
         # A simple check to ensure the login page contains the link to Google OAuth
-        response = self.client.get('/login')
+        response = self.client.get('/auth/login')
         self.assertIn(b'Sign in with google', response.data)

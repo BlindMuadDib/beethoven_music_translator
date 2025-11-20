@@ -43,7 +43,6 @@ spec:
     # --- RULE 3.1: Allow DNS ---
     - toEndpoints:
         - matchLabels:
-            "k8s:k8s-app": kube-dns
             "k8s:io.kubernetes.pod.namespace": kube-system
       toPorts:
         - ports:
@@ -55,7 +54,6 @@ spec:
     # --- RULE 3.2: Allow access to PostgreSQL Database ---
     - toEndpoints:
         - matchLabels:
-            "k8s:cluster-name": "auth-db-cluster"
             "k8s:io.kubernetes.pod.namespace": "zalando"
       toPorts:
         - ports:
@@ -98,4 +96,13 @@ spec:
             protocol: TCP
         - ports:
           - port: "22227" # Demucs
+            protocol: TCP
+
+    # --- RULE 3.5: Allow SMTP (Email) ---
+    # Allows auth-server to talk to Zoho (TCP 587)
+    - toCIDR:
+        - "0.0.0.0/0"
+      toPorts:
+        - ports:
+          - port: "587"
             protocol: TCP

@@ -7,7 +7,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_security import Security, SQLAlchemyUserDatastore, UserMixin, RoleMixin, login_required, roles_required, current_user
 from flask_security.signals import user_registered
 from flask_security.forms import RegisterFormV2
-from wtforms import StringField
+from flask_mail import Mail, Message
 from authlib.integrations.flask_client import OAuth
 
 # Basic logging
@@ -15,6 +15,7 @@ log = getLogger(__name__)
 
 # --- Database Setup ---
 db = SQLAlchemy()
+mail = Mail()
 
 class Role(db.Model, RoleMixin):
     id = db.Column(db.Integer(), primary_key=True)
@@ -26,6 +27,7 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(255), unique=True)
     password = db.Column(db.String(255))
     active = db.Column(db.Boolean())
+    confirmed_at = db.Column(db.DateTime())
     fs_uniquifier = db.Column(db.String(255), unique=True, nullable=False)
     tf_primary_method = db.Column(db.String(64), nullable=True)
     tf_totp_secret = db.Column(db.String(255), nullable=True)
@@ -43,7 +45,6 @@ roles_users = db.Table('roles_users',
 class AccessRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False)
-    access_code = db.Column(db.String(64), unique=True, nullable=True)
     approved = db.Column(db.Boolean, default=False, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     user = db.relationship('User', backref=db.backref('access_request',
@@ -51,40 +52,70 @@ class AccessRequest(db.Model):
 
 # --- Custom Forms ---
 class ExtendedRegisterForm(RegisterFormV2):
-    access_code = StringField('Access Code')
-
     def validate(self, **kwargs):
         if not super().validate(**kwargs):
             return False
 
-        # Manually check if the access code was provided and flash an error if not
-        if not self.access_code.data:
-            flash("Access Code is required", "error")
-            return False
+        # Check for an approved AccessRequest
+        req = AccessRequest.query.filter_by(email=self.email.data).first()
 
-        req = AccessRequest.query.filter_by(
-            email=self.email.data, access_code=self.access_code.data,
-            approved=True
-        ).first()
         if not req:
             # Use flash to display the error
-            flash("Invalid access code or email.", "error")
+            flash("You must request access before registering.", "error")
+            return False
+
+        if not req.approved:
+            flash("Your access request has not been approved yet.", "error")
             return False
 
         if req.user_id is not None:
             # Also flash this error
-            flash("Access code has already been used.", "error")
+            flash("This email has already been registered.", "error")
             return False
 
         return True
 
-# --- Application Factory ---
+# --- Datastore and Helpers ---
 user_datastore = SQLAlchemyUserDatastore(db, User, Role)
 
-def send_access_code_email(email, code):
-    """Placehodler for sending an email. In a real app, use Flask-Mail."""
-    log.info(f"EMAIL --- To: {email}, Code: {code} --- EMAIL")
+def send_approval_email(email):
+    """Sends an email notifying the user they are approved."""
+    try:
+        msg = Message("Your Access Request is Approved!",
+                      sender=os.environ.get('MAIL_USERNAME', 'donotreply@musictranslator.org'),
+                      recipients=[email])
 
+        # Get the registration URL
+        # Use _external=True to get the full URL
+        register_url = url_for('security.register', _external=True)
+
+        msg.body = f"You have been approved to create an account for the Music Translator for and by Deaf.\n\n" \
+                   f"Please visit the link below to register:\n{register_url}"
+
+        mail.send(msg)
+        log.info(f"Approval email sent to : {email}")
+    except Exception as e:
+        log.error(f"Failed to send approval email to {email}: {e}")
+
+def setup_database(app_instance):
+    with app_instance.app_context():
+        db.create_all()
+        user_datastore.find_or_create_role(name='admin',
+                                           description='Full access')
+        user_datastore.find_or_create_role(name='account_holder',
+                                           description='Account holder access')
+        if not user_datastore.find_user(email='admin@musictranslator.org'):
+            # Use an environment variable for the admin password!
+            admin_pw = os.environ.get("ADMIN_INITIAL_PASSWORD",
+                                      "super-insecure-default-password")
+            user_datastore.create_user(
+                email='admin@musictranslator.org',
+                password=admin_pw,
+                roles=['admin']
+            )
+        db.session.commit()
+
+# --- Application Factory ---
 def create_app(testing=False):
     app = Flask(__name__)
 
@@ -103,8 +134,14 @@ def create_app(testing=False):
         app.config['SECURITY_TWO_FACTOR_REQUIRED'] = False
         # Use a file-based DB for testing to support multiple workers in the container
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
+        # Disable email sending and confirmation for tests
+        app.config['SECURITY_SEND_REGISTER_EMAIL'] = False
+        app.config['SECURITY_CONFIRMABLE'] = False
     else:
         app.config['SECURITY_TWO_FACTOR_REQUIRED'] = True
+        # Enable email sending and confirmation for production
+        app.config['SECURITY_SEND_REGISTER_EMAIL'] = True
+        app.config['SECURITY_CONFIRMABLE'] = True
 
         # Build the PostgresSQL connection string from environment variables
         db_user = os.environ.get('POSTGRES_USER')
@@ -130,13 +167,14 @@ def create_app(testing=False):
     app.config['SECURITY_TOTP_SECRETS'] = {"1": "JBSWY3DPEHPK3PXP"} # Add a dummy secret for testing
     app.config['SECURITY_TOTP_ISSUER'] = "MusicTranslator" # This is the name users will see in their authenticator app
 
+    app.config['SECURITY_POST_LOGIN_VIEW'] = '/auth'
+    app.config['SECURITY_POST_REGISTER_VIEW'] = '/auth'
     app.config['SECURITY_REGISTERABLE'] = True
     app.config['SECURITY_SEND_REGISTER_EMAIL'] = False
     app.config['SECURITY_URL_PREFIX'] = '/auth'
     app.config['SECURITY_CHANGEABLE'] = True
     app.config['SECURITY_RECOVERABLE'] = True
     app.config['SECURITY_TWO_FACTOR'] = True
-    app.config['SECURITY_RENDER_EXTRA_FORM_FIELDS'] = True # Render custom form fields
     app.config['SECURITY_TWO_FACTOR_ENABLED_METHODS'] = ["authenticator"]
     app.config['SECURITY_OAUTH_ENABLE'] = True
     app.config['SECURITY_OAUTH_CONFIG'] = {
@@ -147,41 +185,30 @@ def create_app(testing=False):
         }
     }
 
+    # --- Flask-Mail Configuration (for Zoho) ---
+    app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.zoho.com')
+    app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+    app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() in ['true', '1', 't']
+    app.config['MAIL_USE_SSL'] = os.environ.get('MAIL_USE_SSL', 'false').lower() in ['true', '1', 't']
+    app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'donotreply@musictranslator.org')
+    app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+    app.config['SECURITY_EMAIL_SENDER'] = os.environ.get('MAIL_USERNAME', 'donotreply@musictranslator.org')
+
     # Make the app aware of the /auth prefix from the Ingress
     # It will use the X-Forwarded-Prefix header set by the Ingress controller
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1,
                             x_host=1, x_prefix=1)
 
     db.init_app(app)
+    mail.init_app(app)
     security = Security(app, user_datastore,
                         register_form=ExtendedRegisterForm)
 
-    def setup_database(app_instance):
-        with app_instance.app_context():
-            db.create_all()
-            user_datastore.find_or_create_role(name='admin',
-                                               description='Full access')
-            user_datastore.find_or_create_role(name='account_holder',
-                                               description='Account holder access')
-            if not user_datastore.find_user(email='admin@musictranslator.org'):
-                # Use an environment variable for the admin password!
-                admin_pw = os.environ.get("ADMIN_INITIAL_PASSWORD", "super-insecure-default-password")
-                user_datastore.create_user(
-                    email='admin@musictranslator.org',
-                    password=admin_pw,
-                    roles=['admin']
-                )
-            db.session.commit()
-
-    # # Only set up the database automatically if NOT testing.
-    # # The test suite will manage its own database
-    # if not is_testing:
-    #     with app.app_context():
-    #         setup_database(app)
-    # This is incompatible with integration testing so it is temporarily
-    # allowed during testing. Must be addressed before CI/CD
-    with app.app_context():
-        setup_database(app)
+    # Only set up the database automatically if NOT testing.
+    # The test suite will manage its own database
+    if not is_testing:
+        with app.app_context():
+            setup_database(app)
 
     # --- Views ---
     @app.route('/auth')
@@ -244,10 +271,10 @@ def create_app(testing=False):
         })
 
     # --- Admin Panel ---
-    @app.route('/admin/')
+    @app.route('/auth/admin/')
     @roles_required('admin')
     def admin_index():
-        return "<h1>Admin Panel</h1><p><a href='/admin/requests'>View Access Requests</a></p>"
+        return "<h1>Admin Panel</h1><p><a href='/auth/admin/requests'>View Access Requests</a></p>"
 
     @app.route('/auth/admin/requests')
     @roles_required('admin')
@@ -283,10 +310,9 @@ def create_app(testing=False):
         req = db.get_or_404(AccessRequest, req_id)
         if not req.approved:
             req.approved = True
-            req.access_code = secrets.token_hex(16)
             db.session.commit()
-            send_access_code_email(req.email, req.access_code)
-            flash(f"Request approved for {req.email}", "success")
+            send_approval_email(req.email)
+            flash(f"Request approved for {req.email}. Notification sent", "success")
         else:
             flash("Request was already approved.", "info")
         return redirect(url_for('admin_requests'))
@@ -319,27 +345,6 @@ def create_app(testing=False):
         log.info("Internal session validation failed: No authenticated user")
         return jsonify({"valid": False})
 
-    @app.route('/internal/validate-access-code/<string:access_code>')
-    def internal_validate_access_code(access_code):
-        """
-        An internal endpoint for other services to validate an access code.
-        Checks if the code exists, is approved, and has not yet been used to
-        create an account
-        Codes persist after account creation so a user doesn't need to log-in
-        to submit a translation request
-        """
-        log.info(f"Internal validation request for code: {access_code}")
-        req = AccessRequest.query.filter_by(access_code=access_code,
-                                           approved=True).first()
-        if req:
-            log.info(f"Code {access_code} is valid.")
-            return jsonify({"valid": True})
-
-        log.warning(f"Code {access_code} is NOT valid.")
-        # Return a 200 OK with valid: False, as 404 might be ambiguous
-        # (service down vs. code not found)
-        return jsonify({"valid": False})
-
     # --- TESTING-ONLY ENDPOINTS ---
     if is_testing:
         @app.route('/_reset_db', methods=['POST'])
@@ -347,24 +352,6 @@ def create_app(testing=False):
             print("--- RESETTING DATABASE ---")
             setup_database(app)
             return "Database reset!", 200
-
-        @app.route('/auth/_get_access_code/<email>', methods=['GET'])
-        def get_access_code(email):
-            # Only return the access code if the request is approved AND has
-            # a code.
-            req = AccessRequest.query.filter_by(email=email,
-                                                approved=True).first()
-            if req and req.access_code:
-                return jsonify({"access_code": req.access_code})
-            return jsonify({"error": "Not found"}), 404
-
-        @app.route('/auth/_get_request_id/<email>', methods=['GET'])
-        def get_request_id(email):
-            """Returns the reqest ID for a given email."""
-            req = AccessRequest.query.filter_by(email=email).first()
-            if req:
-                return jsonify({"request_id": req.id})
-            return jsonify({"error": "Request not found for email"}), 404
 
     return app
 

@@ -15,134 +15,179 @@ class TestIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # print("Starting setUpClass...")
-        # result = subprocess.run(['kind', 'get', 'clusters'], capture_output=True, text=True)
-        # if "kind" not in result.stdout:
-        #     raise Exception("KIND cluster is not running. Please run run_integration_test.sh first.")
+        print("Starting Integration Test Setup...")
 
-        # It's assumed that the run_integration_test.sh script has already
-        # deployed all necessary services
+        cls.base_url = "http://localhost:9000/api"
+        cls.auth_base_url = "http://localhost:9000/auth"
 
-        cls.base_url = "https://musictranslator.org:8443/api"
-        cls.auth_base_url = "https://musictranslator.org:8443/auth"
         cls.host_header = {"Host": "musictranslator.org"}
         cls.ssl_verify = False
+
+        cls.admin_email = "admin@musictranslator.org"
+        cls.admin_pass = "super-insecure-default-password"
+
         cls.test_email = f"test-user-{int(time.time())}@example.com"
+        cls.test_pass = "testpassword123"
 
-        # --- Get a valid access code from the auth service ---
-        print(f"Attempting to get a valid access code from {cls.auth_base_url}...")
-        cls.valid_access_code = cls.get_new_access_code(cls.test_email)
-        print(f"Successfully obtained access code: {cls.valid_access_code}")
+        # This session will be authenticated as the new test user
+        cls.user_session = cls.get_authenticated_session(
+            cls.test_email,
+            cls.test_pass
+        )
 
-        print("SetUpClass completed")
+        print("SetUpClass completed: Test user created and logged in.")
 
     @classmethod
-    def get_new_access_code(cls, email):
+    def get_authenticated_session(cls, email, password):
         """
-        Logs into the auth service as admin, creates and approves an access
-        request, and returns the generated access code.
+        Automates the entire user creation and login flow to get a valid
+        session cookie for testing.
         """
-        with requests.Session() as session:
-            # 1. Login as Admin
-            admin_login_url = f"{cls.auth_base_url}/login"
+        admin_session = None
+        try:
+            # --- 1. Reset DB and Create Admin ---
+            # Use a *new* session for this one-off admin-task
+            print("Resetting auth database...")
+            reset_url = f"{cls.auth_base_url}/_reset_db"
+            reset_resp = requests.post(reset_url, headers=cls.host_header,
+                                       verify=cls.ssl_verify, timeout=10)
+            reset_resp.raise_for_status()
+            print("Database reset.")
+
+            # --- 2. Login as Admin ---
+            admin_session = requests.Session()
+            admin_session.headers.update(cls.host_header)
+            admin_session.verify = cls.ssl_verify
+
+            login_url = f"{cls.auth_base_url}/login"
+
+            # Get the CSRF token from login page
+            login_page_resp = admin_session.get(login_url)
+            csrf_token = cls.scrape_csrf_token(login_page_resp.text)
+
             admin_creds = {
-                "email": "admin@musictranslator.org",
-                "password": "a-very-secure-admin-password",
-                "submit": "Sign In"
+                "email": cls.admin_email,
+                "password": cls.admin_pass,
+                "csrf_token": csrf_token
             }
-            try:
-                # The form submission might require fetching a CSRF token first
-                login_page_resp = session.get(admin_login_url,
-                                              headers=cls.host_header,
-                                              verify=cls.ssl_verify)
-                login_page_resp.raise_for_status()
-                # A simple way to get the token without a full HTML parser
-                csrf_token_match = re.search(
-                    r'name="csrf_token" type="hidden" value="([^"]+)"',
-                    login_page_resp.text
-                )
-                if csrf_token_match:
-                    admin_creds["csrf_token"] = csrf_token_match.group(1)
 
-                login_resp = session.post(admin_login_url,
-                                          headers=cls.host_header,
-                                          data=admin_creds,
-                                          verify=cls.ssl_verify)
-                login_resp.raise_for_status()
-                if "Invalid email or password" in login_resp.text:
-                    raise Exception("Admin login failed. Check credentials in auth-deployment.yaml")
-                print("Admin login successful.")
+            login_resp = admin_session.post(login_url, data=admin_creds,
+                                            allow_redirects=True)
+            login_resp.raise_for_status()
+            if "Invalid email or password" in login_resp.text:
+                raise Exception("Admin login failed.")
+            print("Admin login successful.")
 
-                # 2. Request access for the test user
-                req_access_url = f"{cls.auth_base_url}/request-access"
-                # GET the page to scrape the CSRF token
-                get_req_page_resp = session.get(req_access_url,
-                                                headers=cls.host_header,
-                                                verify=cls.ssl_verify)
-                get_req_page_resp.raise_for_status()
+            # --- 3. Request Access for New User
+            print(f"Requesting access for {email}...")
+            req_access_url = f"{cls.auth_base_url}/request-access"
+            req_page_resp = admin_session.get(req_access_url) # Use admin sesh
+            csrf_token = cls.scrape_csrf_token(req_page_resp.text,
+                                               form_action="/auth/request-access")
 
-                # Scrape the token from the request form
-                csrf_token_match = re.search(
-                    r'name="csrf_token" type="hidden" value="([^"]+)"',
-                    get_req_page_resp.text
-                )
+            access_request_data = {"email": email, "csrf_token": csrf_token}
+            req_access_resp = admin_session.post(req_access_url,
+                                                 data=access_request_data,
+                                                 allow_redirects=True)
+            req_access_resp.raise_for_status()
 
-                access_request_data = {"email": email}
-                if csrf_token_match:
-                    access_request_data["csrf_token"] = csrf_token_match.group(1)
+            # --- 4. Approve Access as Admin ---
+            print("Approving access...")
+            admin_req_page_resp = admin_session.get(f"{cls.auth_base_url}/admin/requests")
+            approve_url = cls.find_approve_url(admin_req_page_resp.text,
+                                               email)
+            if not approve_url:
+                raise Exception(f"Could not find approve URL for {email}")
 
-                # POST with the token included
-                req_access_resp = session.post(req_access_url,
-                                               headers=cls.host_header,
-                                               data=access_request_data,
-                                               verify=cls.ssl_verify,
-                                               allow_redirects=True)
-                req_access_resp.raise_for_status()
-                print(f"Access request for {email} submitted.")
+            approve_resp = admin_session.post(f"{cls.auth_base_url}{approve_url}",
+                                              allow_redirects=True)
+            approve_resp.raise_for_status()
+            print("Access approved.")
 
-                # 3. Get the request ID with the testing endpoint
-                get_id_url = f"{cls.auth_base_url}/_get_request_id/{email}"
-                id_resp = session.get(get_id_url,
-                                      headers=cls.host_header,
-                                      verify=cls.ssl_verify)
-                id_resp.raise_for_status()
-                id_data = id_resp.json()
-                req_id = id_data.get("request_id")
-                if not req_id:
-                    raise Exception(f"Could not retrieve request ID for {email} via testing endpoint.")
-                print(f"Found request ID via API: {req_id}")
+            # --- 5. Register New User ---
+            # Use a *new, clean* session for registration
+            user_session = requests.Session()
+            user_session.headers.update(cls.host_header)
+            user_session.verify = cls.ssl_verify
 
-                # 4. Approve the request using its ID
-                approve_url = f"{cls.auth_base_url}/admin/approve/{req_id}"
-                approve_resp = session.post(approve_url,
-                                            headers=cls.host_header,
-                                            verify=cls.ssl_verify)
-                approve_resp.raise_for_status()
-                print(f"Request ID {req_id} approved.")
+            print("Registering new user...")
+            register_url = f"{cls.auth_base_url}/register"
+            reg_page_resp = user_session.get(register_url)
+            csrf_token = cls.scrape_csrf_token(reg_page_resp.text)
 
-                # 5. Retrieve the access code using the testing endpoint
-                get_code_url = f"{cls.auth_base_url}/_get_access_code/{email}"
-                code_resp = session.get(get_code_url,
-                                        headers=cls.host_header,
-                                        verify=cls.ssl_verify)
-                code_resp.raise_for_status()
-                access_code = code_resp.json().get("access_code")
-                if not access_code:
-                    raise Exception("Failed to retrieve access code after approval.")
+            register_data = {
+                "email": email,
+                "password": password,
+                "password_confirm": password,
+                "csrf_token": csrf_token
+            }
+            reg_resp = user_session.post(register_url, data=register_data,
+                                         allow_redirects=True)
+            reg_resp.raise_for_status()
+            # Note: With FLASK_ENV=testing, registration does not auto-login
+            print("User registered.")
 
-                return access_code
+            # --- 6. Login as New User to Get Session ---
+            print("Logging in as new user...")
+            login_page_resp = user_session.get(login_url)
+            csrf_token = cls.scrape_csrf_token(login_page_resp.text)
 
-            except requests.exceptions.RequestException as e:
-                print(f"ERROR setting up integration test: Failed to communicate with auth service: {e}")
-                # Add a sleep and retry, as the service might not be fully ready
-                time.sleep(10)
-                # For a real CI, this might be looped, but for now, just fail
-                raise Exception("Could not get access code. Is the auth service running and accessible via Ingress?") from e
+            login_data = {
+                "email": email,
+                "password": password,
+                "csrf_token": csrf_token
+            }
+
+            final_login_resp = user_session.post(login_url, data=login_data,
+                                                 allow_redirects=True)
+            final_login_resp.raise_for_status()
+
+            if "Invalid email or password" in final_login_resp.text:
+                raise Exception(f"Failed to log in as new user {email}.")
+
+            print("User login successful. Session is active.")
+            return user_session # Return the authenticated session
+
+        except Exception as e:
+            print(f"FATAL: Failed to create authenticated session: {e}")
+            raise
+        finally:
+            if admin_session:
+                admin_session.close()
+
+    @classmethod
+    def scrape_csrf_token(cls, html_text, form_action=None):
+        """
+        Finds a CSRF token in HTML text.
+        """
+        if form_action:
+            # More specific search
+            form_match = re.search(f'<form[^>]+action="{form_action}"[^>]*>.*?</form>',
+                                   html_text, re.DOTALL)
+            html_text = form_match.group(0) if form_match else ""
+
+        csrf_token_match = re.search(r'name="csrf_token" type="hidden" value="([^"]+)"', html_text)
+        if not csrf_token_match:
+            raise Exception(f"Could not find csrf_token. Searched in {html_text[:500]}...")
+        return csrf_token_match.group(1)
+
+    @classmethod
+    def find_approve_url(cls, html_text, email):
+        """
+        Finds the POST URL to approve a request for a given email.
+        """
+        # Finds: <tr> ... <td>test@example.com</td> ... <form action="/auth/admin/approve/1"> ... </form>
+        match = re.search(f'<tr>.*?<td>{re.escape(email)}</td>.*?<form.*?action="([^"]+)">.*?</form>.*?,</tr>',
+                          html_text, re.DOTALL)
+        if match:
+            return match.group(1)
+        return None
 
     @classmethod
     def tearDownClass(cls):
-        # No need to delete KIND cluster here, it's done in the bash script
-        pass
+        if cls.user_session:
+            cls.user_session.close()
+        print("\nTearDownClass completed")
 
     def setUp(self):
         self.audio_file_path = "data/audio/BloodCalcification-SkinDeep.wav"
@@ -156,25 +201,23 @@ class TestIntegration(unittest.TestCase):
         if hasattr(self, 'lyrics_file') and not self.lyrics_file.closed:
             self.lyrics_file.close()
 
-    def test_translate_success(self):
-        # Use the dynamically fetched access code
+    def test_translate_success_with_session(self):
+        """
+        Tests the full translation pipeline using the valid session cookie obtained during setUpClass.
+        """
         target_url = f"{self.base_url}/translate"
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
         }
-        headers = {**self.host_header,
-                   'X-Access-Code': self.valid_access_code}
 
         print("\nSubmitting translation job...")
         try:
-            # 1. Submit the job
-            response = requests.post(
+            # 1. Submit the job using the pre-authenticated session
+            response = self.user_session.post(
                 target_url,
                 files=files,
-                headers=headers,
-                timeout=1200,
-                verify=self.ssl_verify
+                timeout=1200
             )
             response.raise_for_status() # Raise HTTPError for bad responses
             self.assertEqual(response.status_code, 202)
@@ -196,12 +239,8 @@ class TestIntegration(unittest.TestCase):
             while time.time() - start_polling_time < polling_timeout_seconds:
                 time.sleep(polling_interval_seconds)
                 try:
-                    result_response = requests.get(
-                        result_url,
-                        headers=self.host_header,
-                        verify=self.ssl_verify,
-                        timeout=60 # Timeout for polling request
-                    )
+                    result_response = self.user_session.get(result_url,
+                                                            timeout=60)
                     result_response.raise_for_status()
                     result_data = result_response.json()
                     job_status = result_data.get("status")
@@ -283,13 +322,10 @@ class TestIntegration(unittest.TestCase):
             print(f"Harmonic analysis static URL found: {static_harmonic_url}. Fetching data...")
 
             # Fetch the data from the static_results_url and validate it.
-            # Re-use the base URL's host, not localhost
-            base_host = self.base_url.rsplit('/api', 1)[0] # This gets 'https://musictranslator.org:8443'
+            base_host = self.base_url.rsplit('/api', 1)[0] # This gets 'http://localhost:9000'
             full_static_harmonic_url = f"{base_host}/{static_harmonic_url}"
-            harmonic_response = requests.get(full_static_harmonic_url,
-                                             headers=self.host_header,
-                                             verify=self.ssl_verify,
-                                             timeout=60)
+            harmonic_response = self.user_session.get(full_static_harmonic_url,
+                                                      timeout=60)
             self.assertEqual(harmonic_response.status_code, 200)
             static_harmonic_data = harmonic_response.json()
 
@@ -567,10 +603,8 @@ class TestIntegration(unittest.TestCase):
             filename_to_delete = os.path.basename(audio_url)
             cleanup_url = f"{self.base_url}/cleanup/{filename_to_delete}"
             print(f"Cleaning up file via endpoint: {cleanup_url}")
-            cleanup_response = requests.delete(cleanup_url,
-                                               headers=self.host_header,
-                                               verify=self.ssl_verify,
-                                               timeout=60)
+            cleanup_response = self.user_session.delete(cleanup_url,
+                                                        timeout=60)
             self.assertEqual(cleanup_response.status_code, 200,
                              "Cleanup request failed.")
             print("Cleanup successful.")
@@ -580,38 +614,17 @@ class TestIntegration(unittest.TestCase):
         except json.JSONDecodeError as e:
             self.fail(f"JSON decode error during integration test: {e}. Response: {response.text if 'response' in locals() else 'N/A'}")
 
-    def test_translate_invalid_access_code(self):
+    def test_translate_unauthenticated(self):
         """
-        Test that a made-up access code is rejected.
+        Test that a request without a session cookie is rejected.
         """
+        print("\nTesting unauthorized request (no session cookie)...")
         target_url = f"{self.base_url}/translate"
         files = {
             'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
             'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
         }
-        headers = {**self.host_header, 'X-Access-Code': 'this-is-a-fake-code-12345'}
 
-        response = requests.post(
-            target_url,
-            files=files,
-            headers=headers,
-            timeout=180,
-            verify=self.ssl_verify
-        )
-        self.assertEqual(response.status_code, 401,
-                         f"Expected 401 error code, received {response.status_code}.")
-        response_data = response.json()
-        self.assertIn("error", response_data)
-        self.assertEqual(response_data["error"],
-                         "Access Denied. Please provide a valid access code.")
-
-    def test_translate_without_access_code(self):
-        """Test no access granted to those without code"""
-        target_url = f"{self.base_url}/translate"
-        files = {
-            'audio': (os.path.basename(self.audio_file_path), self.audio_file, 'audio/wav'),
-            'lyrics': (os.path.basename(self.lyrics_file_path), self.lyrics_file, 'text/plain')
-        }
         response = requests.post(
             target_url,
             files=files,
@@ -623,7 +636,9 @@ class TestIntegration(unittest.TestCase):
                          f"Expected 401 error code, received {response.status_code}.")
         response_data = response.json()
         self.assertIn("error", response_data)
-        self.assertEqual(response_data["error"], "Access Denied. Please provide a valid access code.")
+        self.assertEqual(response_data["error"], "Access Denied. Please login.")
+        print("Unauthorized request correctly rejected.")
+
     #
     # def test_get_results_initial_status(self):
     #     """Test getting the initial status of a job"""
@@ -679,10 +694,8 @@ class TestIntegration(unittest.TestCase):
         non_existent_job_id = "non-existent-job-12345"
         result_url = f"{self.base_url}/results/{non_existent_job_id}"
 
-        response = requests.get(
+        response = self.user_session.get(
             result_url,
-            headers=self.host_header,
-            verify=self.ssl_verify,
             timeout=20
         )
         self.assertEqual(response.status_code, 404)
@@ -693,11 +706,7 @@ class TestIntegration(unittest.TestCase):
 
     def test_main_deployment(self):
         # Test the musictranslator.main Flask app deployment and service
-        response = requests.get(
-            f"{self.base_url}/translate/health",
-            headers=self.host_header,
-            verify=self.ssl_verify
-            )
+        response = self.user_session.get(f"{self.base_url}/translate/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json().get('status'), 'OK')
         self.assertEqual(response.json().get('message'), 'Music Translator is running')

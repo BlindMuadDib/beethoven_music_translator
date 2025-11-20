@@ -20,8 +20,8 @@ spec:
           type: Unconfined
       containers:
       - name: auth-server
-        image: docker.io/blindmuaddib/auth-server:1.0
-        imagePullPolicy: IfNotPresent
+        image: docker.io/blindmuaddib/auth-server:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 45769
         resources:
@@ -64,3 +64,20 @@ spec:
             value: "auth_db"
           - name: POSTGRES_HOST
             value: "auth-db-cluster.zalando.svc.cluster.local"
+
+          - name: MAIL_SERVER
+            value: "smtp.zoho.com"
+          - name: MAIL_PORT
+            value: "587"
+          - name: MAIL_USE_TLS
+            value: "true"
+          - name: MAIL_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: auth-server-secrets
+                key: MAIL_USERNAME
+          - name: MAIL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: auth-server-secrets
+                key: MAIL_PASSWORD

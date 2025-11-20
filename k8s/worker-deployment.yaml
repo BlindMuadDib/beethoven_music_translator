@@ -18,7 +18,7 @@ spec:
           type: Unconfined
       containers:
       - name: worker
-        image: blindmuaddib/music-translator:0.1.0
+        image: blindmuaddib/music-translator:latest
         imagePullPolicy: IfNotPresent
         command: ["python", "worker.py"]
         env:

@@ -15,10 +15,9 @@ Basic Requirements:
     Create RBAC
     Admins must 2FA with Google Authenticator App
     Allow users to request access with an email address
-    An admin must approve requests before an access code is sent to the email
-    Allow users with an access code to make an account (username & password)
-    Stores access code information with email address and if applicable username and hashed password
-    Only admin can access user and access code data
+    An admin must approve requests before users make an account (username & password)
+    Stores email address and if applicable username and hashed password
+    Only admin can access user data
     Implement OAuth
 
 """
@@ -115,7 +114,7 @@ def build_and_run_container(podman_client):
 
     while True:
         try:
-            response = requests.get(BASE_URL + '/login')
+            response = requests.get(BASE_URL + '/auth/login')
             if response.status_code == 200:
                 print("Container is responsive!")
                 break
@@ -174,7 +173,7 @@ def setup_database(build_and_run_container):
 # --- Helper functions for tests ---
 def login(base_url, email, password):
     session = requests.Session()
-    login_url = f"{base_url}/login"
+    login_url = f"{base_url}/auth/login"
     response = session.post(login_url, data={'email': email, 'password': password}, allow_redirects=True)
     return session, response
 
@@ -196,12 +195,12 @@ def test_request_access(build_and_run_container):
     test_email = 'new_request@test.com'
 
     # 1. User requests access
-    req_res = requests.post(f"{url}/request-access", data={'email': test_email})
+    req_res = requests.post(f"{url}/auth/request-access", data={'email': test_email})
     assert "Request submitted!" in req_res.text
 
     # 2. Admin logs in to verify the request is there
     admin_session, _ = login(url, 'admin@musictranslator.org', 'super-insecure-default-password')
-    admin_res = admin_session.get(f"{url}/admin/requests")
+    admin_res = admin_session.get(f"{url}/auth/admin/requests")
     assert admin_res.status_code == 200
     assert test_email in admin_res.text
     assert "Pending" in admin_res.text
@@ -213,7 +212,7 @@ def test_admin_approve_request(build_and_run_container):
     """
     url = build_and_run_container
     test_email = 'approve_me@test.com'
-    requests.post(f"{url}/request-access", data={'email': test_email})
+    requests.post(f"{url}/auth/request-access", data={'email': test_email})
 
     # 1. Admin Login
     admin_session, _ = login(url,
@@ -221,7 +220,7 @@ def test_admin_approve_request(build_and_run_container):
                              'super-insecure-default-password')
 
     # 2. Get the requests page to find the approval form
-    requests_page = admin_session.get(f"{url}/admin/requests")
+    requests_page = admin_session.get(f"{url}/auth/admin/requests")
     soup = BeautifulSoup(requests_page.content, 'lxml')
 
     # Find the form associated with our test email to get the request ID
@@ -241,24 +240,23 @@ def test_admin_approve_request(build_and_run_container):
     assert "Request approved" in approve_res.text
 
     # 4. Verify the status has changed on the page
-    final_page = admin_session.get(f"{url}/admin/requests")
+    final_page = admin_session.get(f"{url}/auth/admin/requests")
     assert "Approved" in final_page.text
 
 def test_user_registration_and_login(build_and_run_container):
     """
-    Verify a user can register using the approved generated access code,
-    and then log in.
+    Verify a user can register after being approved, and then log in.
     """
     url = build_and_run_container
     test_email = 'register_me@test.com'
     test_password = 'strongpassword123'
 
     # 1. Go through the request and approval flow
-    requests.post(f"{url}/request-access", data={'email': test_email})
+    requests.post(f"{url}/auth/request-access", data={'email': test_email})
     admin_session, _ = login(url,
                              'admin@musictranslator.org',
                              'super-insecure-default-password')
-    requests_page = admin_session.get(f"{url}/admin/requests")
+    requests_page = admin_session.get(f"{url}/auth/admin/requests")
     soup = BeautifulSoup(requests_page.content, 'lxml')
 
     # Robustly find the form associated with the correct email
@@ -273,30 +271,26 @@ def test_user_registration_and_login(build_and_run_container):
     assert approve_action is not None, f"Could not find approval form for {test_email}"
     admin_session.post(f"{url}{approve_action}")
 
-    # 2. Get the access code using our test endpoint
-    code_res = requests.get(f"{url}/_get_access_code/{test_email}")
-    assert code_res.status_code == 200
-    access_code = code_res.json()['access_code']
-    assert access_code is not None
-
-    # 3. Register the new user
+    # 2. Register the new user
     register_data = {
         'email': test_email,
         'password': test_password,
-        'password_confirm': test_password,
-        'access_code': access_code
+        'password_confirm': test_password
     }
-    reg_res = requests.post(f"{url}/register",
+    reg_res = requests.post(f"{url}/auth/register",
                             data=register_data,
                             allow_redirects=True)
-    # Successful registration on this app logs the user in and redirects.
-    # Check for content on a page only logged-in users would see (e.g., a logout link)
+    # Successful registration redirects to /auth
+    # Check for content on that page
+    assert '<h1>Welcome!</h1>' in reg_res.text
+    assert 'Hello, register_me@test.com' in reg_res.text
     assert 'logout' in reg_res.text.lower()
 
-    # 4. Explicitly log out and log back in to confirm
-    requests.get(f"{url}/logout")
+    # 3. Explicitly log out and log back in to confirm
+    requests.get(f"{url}/auth/logout")
     user_session, login_res = login(url, test_email, test_password)
     assert "Invalid email or password" not in login_res.text
+    assert 'Hello, register_me@test.com' in login_res.text
 
 def test_admin_route_authorization(build_and_run_container):
     """
@@ -307,12 +301,12 @@ def test_admin_route_authorization(build_and_run_container):
     # 1. Create and register a regular user
     user_email = 'regular_user@test.com'
     user_password = 'password'
-    requests.post(f"{url}/request-access", data={'email': user_email})
+    requests.post(f"{url}/auth/request-access", data={'email': user_email})
     admin_session, _ = login(url,
                              'admin@musictranslator.org',
                              'super-insecure-default-password')
 
-    requests_page = admin_session.get(f"{url}/admin/requests")
+    requests_page = admin_session.get(f"{url}/auth/admin/requests")
     soup = BeautifulSoup(requests_page.content, 'lxml')
 
     # Robustly find the form associated with the correct email
@@ -327,26 +321,23 @@ def test_admin_route_authorization(build_and_run_container):
     assert approve_action is not None, f"Could not find approval form for {user_email}"
     admin_session.post(f"{url}{approve_action}")
 
-    code_res = requests.get(f"{url}/_get_access_code/{user_email}")
-    access_code = code_res.json()['access_code']
     register_data = {
         'email': user_email,
         'password': user_password,
-        'password_confirm': user_password,
-        'access_code': access_code
+        'password_confirm': user_password
     }
-    requests.post(f"{url}/register", data=register_data)
+    requests.post(f"{url}/auth/register", data=register_data)
 
     # 2. Log in as the regular user and try to access an admin page
     user_session, _ = login(url, user_email, user_password)
-    admin_page_res = user_session.get(f"{url}/admin/requests")
+    admin_page_res = user_session.get(f"{url}/auth/admin/requests")
     assert admin_page_res.status_code == 403 # Forbidden
 
     # 3. Log in as admin and access the page successfully
     admin_session, _ = login(url,
                             'admin@musictranslator.org',
                             'super-insecure-default-password')
-    admin_page_res_new = admin_session.get(f"{url}/admin/requests")
+    admin_page_res_new = admin_session.get(f"{url}/auth/admin/requests")
     assert admin_page_res_new.status_code == 200
     assert "Access Requests" in admin_page_res_new.text
 
@@ -376,3 +367,5 @@ def test_2fa_redirect_for_admins(build_and_run_container):
     # Assert successful login (no Invalid email/password message) as a compromise
     # until a proper 2FA E2E environment is created.
     assert "Invalid email or password" not in response.text
+    assert response.status_code == 200
+    assert 'Hello, admin@musictranslator.org' in response.text

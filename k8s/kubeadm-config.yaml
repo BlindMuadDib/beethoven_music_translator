@@ -1,0 +1,19 @@
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  kubeletExtraArgs:
+  name: "computer"
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+# Current K8s version
+kubernetesVersion: v1.33.5
+# # Set the Pod network CIDR for Cilium, allowing for many available addresses
+networking:
+  podSubnet: "10.0.0.0/16"
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+# This explicitly sets the cgroup driver in the Kubelet's final config file
+cgroupDriver: "systemd"

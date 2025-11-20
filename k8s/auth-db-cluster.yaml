@@ -23,6 +23,11 @@ spec:
     version: "17"
     parameters:
       ssl: "off"
+      password_encryption: "scram-sha-256"
   patroni:
     pg_hba:
-      - hostnossl auth_db translator-admin 10.0.0.0/8 md5
+      - local all all trust
+      - host all all 127.0.0.1/32 trust
+      - host all all ::1/128 trust
+
+      - hostnossl auth_db translator-admin 10.0.0.0/8 scram-sha-256

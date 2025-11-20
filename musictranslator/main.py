@@ -118,27 +118,6 @@ def is_session_valid(session_cookie):
         app.logger.error(f"Could not connect to auth service for session validation: {e}")
         return False
 
-def is_access_valid(access_code):
-    """
-    Validates an access code by calling the external authentication service.
-    """
-    if not access_code:
-        return False
-    try:
-        url = f"{AUTH_SERVICE_URL}/internal/validate-access-code/{access_code}"
-        app.logger.info(f"Validating access code against: {url}")
-        response = requests.get(url, timeout=5)
-
-        if response.status_code == 200:
-            data = response.json()
-            return data.get("valid", False)
-
-        app.logger.error(f"Auth service returned non-200 status: {response.status_code}")
-        return False
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"Could not connect to auth service: {e}")
-        return False
-
 # --- Define the Background Task ---
 
 def background_translation_task(unique_audio_path, unique_lyrics_path, unique_audio_filename, original_audio_filename):
@@ -556,7 +535,7 @@ def translate():
 
     # --- Access Validation ---
     is_authorized = False
-    # 1. Prioritize checking for a valid session cookie
+    # Check for a valid session cookie
     session_cookie = request.cookies.get('session')
 
     app.logger.info("Attempting authorization...")
@@ -566,23 +545,15 @@ def translate():
             is_authorized = True
             app.logger.info("DEBUG - Access granted via session.")
 
-    # 2. If not authorized by session, fall back to access code
     if not is_authorized:
-        access_code = request.headers.get('X-Access-Code')
-        app.logger.info("DEBUG - No valid session, attempting access with code: '%s'", access_code)
-        if is_access_valid(access_code):
-            is_authorized = True
-            app.logger.info("DEBUG - Access granted via access code.")
-
-    if not is_authorized:
-        app.logger.info("DEBUG - Access denied. No valid session of access code provided.")
+        app.logger.info("DEBUG - Access denied. Please log in.")
 
         # Consume the rest of the request's body before returning.
         # This prevents an IncompleteRead error on the client when it's
         # still uploading a large file.
         request.stream.read()
 
-        return jsonify({"error": "Access Denied. Please provide a valid access code."}), 401
+        return jsonify({"error": "Access Denied. Please log in."}), 401
 
     app.logger.info("Authorization successul. Handling file upload...")
 
@@ -769,7 +740,7 @@ def delete_audio_file(filename):
         harmonic_results_path = os.path.join('/shared-data/results',
                                              harmonic_results_filename)
 
-        if os.path.exists(harmonic_results_filename):
+        if os.path.exists(harmonic_results_path):
             try:
                 os.remove(harmonic_results_path)
                 app.logger.info("Client-triggered cleanup: Deleted harmonic results %s",
