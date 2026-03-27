@@ -1,0 +1,42 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: translator-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: translator-worker
+  template:
+    metadata:
+      labels:
+        app: translator-worker
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      containers:
+      - name: worker
+        image: docker.io/blindmuaddib/music-translator:0.1.4
+        imagePullPolicy: IfNotPresent
+        command: ["python", "worker.py"]
+        env:
+          - name: REDIS_HOST
+            value: "redis-service"
+          - name: REDIS_PORT
+            value: "6379"
+        volumeMounts:
+          - name: shared-data-volume
+            mountPath: /shared-data
+        resources:
+          limits:
+            memory: "6Gi"
+            cpu: "1.5"
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+        - name: shared-data-volume
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

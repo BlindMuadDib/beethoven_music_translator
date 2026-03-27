@@ -1,0 +1,108 @@
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "music-translator-zero-trust"
+  namespace: "default"
+spec:
+  # 1. DENY ALL BY DEFAULT
+  endpointSelector: {}
+
+  # 2. EXPLICIT INGRESS ALLOW LIST
+  ingress:
+    # --- RULE 2.1: Allow from Ingress Controller ---
+    - fromEntities:
+        - ingress
+
+    # --- RULE 2.2: Allow Pod-to-Pod Communication ---
+    # This allows pods to accept traffic from other pods
+    # on their specific service ports.
+    - fromEndpoints:
+        # Allow from any pod in the 'default' namespace
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": "default"
+      toPorts:
+        - ports:
+          - port: "6379"  # Redis
+            protocol: TCP
+          - port: "20006" # Harmonic
+            protocol: TCP
+          - port: "24725" # MFA
+            protocol: TCP
+          - port: "25941" # Drums
+            protocol: TCP
+          - port: "45769" # Auth-Server
+            protocol: TCP
+          - port: "22227" # Demucs
+            protocol: TCP
+          # Note: translator-deployment (20005) is only hit by ingress,
+          # so it doesn't need to be in this pod-to-pod rule.
+
+  # 3. EXPLICIT EGRESS ALLOW LIST
+  egress:
+    # --- RULE 3.1: Allow DNS ---
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": kube-system
+      toPorts:
+        - ports:
+          - port: "53"
+            protocol: UDP
+          - port: "53"
+            protocol: TCP
+
+    # --- RULE 3.2: Allow access to PostgreSQL Database ---
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": "zalando"
+      toPorts:
+        - ports:
+          - port: "5432"
+            protocol: TCP
+
+    # --- RULE 3.3: Allow access to Redis ---
+    - toEndpoints:
+        - matchLabels:
+            "k8s:app": "redis"
+      toPorts:
+        - ports:
+          - port: "6379"
+            protocol: TCP
+
+    # --- RULE 3.4: Allow egress to other worker pods ---
+    - toEndpoints:
+        - matchLabels:
+            "k8s:app": "harmonic-client"
+        - matchLabels:
+            "k8s:app": "mfa-wrapper"
+        - matchLabels:
+            "k8s:app": "drums-client"
+        - matchLabels:
+            "k8s:app": "auth-server"
+        - matchLabels:
+            "k8s:app": "demucs-wrapper"
+      toPorts:
+        - ports:
+          - port: "20006" # Harmonic
+            protocol: TCP
+        - ports:
+          - port: "24725" # MFA
+            protocol: TCP
+        - ports:
+          - port: "25941" # Drums
+            protocol: TCP
+        - ports:
+          - port: "45769" # Auth-Server
+            protocol: TCP
+        - ports:
+          - port: "22227" # Demucs
+            protocol: TCP
+
+    # --- RULE 3.5: Allow SMTP (Email) ---
+    # Allows auth-server to talk to Zoho (TCP 587)
+    - toCIDR:
+        - "0.0.0.0/0"
+      toPorts:
+        - ports:
+          - port: "587"
+            protocol: TCP

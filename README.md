@@ -9,45 +9,37 @@ Secondary functionality will be a video of a person (AI or real) that is lip sin
 Tertiary functions may include representation of other instrumentation, eg. guitars, piano, trumpets, sax, drums, etc. This representation will preference live video recordings, but may be supplemented with graphic representation similar to the follow-along lyric representation from primary function.
 Tertiary functions may also include ASL direct translations, NOT TO BE CONFUSED WITH ASL INTERPRETATION NOR SIGNED EXACT ENGLISH (SEE).
 
-# To download and run the Alpha version of the singalongapp portion of the Music Translator
-* You will need to download and install either podman or docker then pull the docker.io/mmcauliffe/montreal-forced-aligner:latest
-* Create a parent directory (ie. music_translator)
-* Download the singalongapp.py file into the parent directory
-* Create a child directory called /singalongapp/
-* Download the contents of the singalongapp folder into the /singalongapp/ folder on your computer
-* If your computer natively has the python libraries listed in singalongapp/requirements.txt, good for you skip the library downloads
-* Download whichever python libraries from requirements.txt are compatible with your computer. For python version 3.12, all but textgrid will be available
-* If you cannot get all python libraries on your computer, ensure you have python virutalenv library installed
-* Open a CLI and navigate to the parent directory /music_translator/
-* If you need a python virtualenv; execute the command "python3 -m venv venv --system-site-packages" The first venv calls the virtualenv, the second names it. Feel free to change the name to whatever you want
-* This will create your virtualenv. To enable it execute "source venv/bin/activate". If you changed the name, replace "venv" with the name you chose. You can close the virtualenv with "deactivate" and "rm -rf venv" if you want to remove the venv files
-* With your python virualenv active, execute "pip install -r ./singalongapp/requirements.txt"
-* Whether you do or don't need a venv, the next step is the same:
-* Execute the command "python singalongapp.py"
+# To run the Alpha version of the Music Translator
+Access the musictranslator.org website on your web browser, request access and wait approval from an admin.
+Once approved, you'll receive an email with log in instructions.
+Log in, upload a music (.wav) file and (optional) corresponding lyrics (.txt) file, then submit.
+A player-ui will load after your submission is processed. Press play and enjoy!
+Alternatively, download this repository, start a Kubernetes cluster, set your own Authentication Server credentials in the auth_server, and run locally on your own machine.
 
 # Music Translator by and for Deaf
 
-This project is designed to help translate music to those who can't hear it. 
+This project is designed to help translate music to those who can't hear it and otherwise enjoy it.
+Please reach out to me if you would like to contribute, or submit an issue or pull request.
 
 ## Key Technologies
 This project leverages the following tools:
 
-### Spleeter
-- **Purpose**: Audio source separation (e.g., isolating vocals from background music).
-- **Repository**: [Spleeter on GitHub](https://github.com/deezer/spleeter)
+### Demucs
+- **Purpose**: Audio source separation (e.g., separating vocals and instruments into individual tracks).
+- **Repository**: https://github.com/adefossez/demucs
 - **License**: MIT License
-- @article{spleeter2020,
-  doi = {10.21105/joss.02154},
-  url = {https://doi.org/10.21105/joss.02154},
-  year = {2020},
-  publisher = {The Open Journal},
-  volume = {5},
-  number = {50},
-  pages = {2154},
-  author = {Romain Hennequin and Anis Khlif and Felix Voituret and Manuel Moussallam},
-  title = {Spleeter: a fast and efficient music source separation tool with pre-trained models},
-  journal = {Journal of Open Source Software},
-  note = {Deezer Research}
+- @inproceedings{rouard2022hybrid,
+  title={Hybrid Transformers for Music Source Separation},
+  author={Rouard, Simon and Massa, Francisco and D{\'e}fossez, Alexandre},
+  booktitle={ICASSP 23},
+  year={2023}
+}
+
+@inproceedings{defossez2021hybrid,
+  title={Hybrid Spectrogram and Waveform Source Separation},
+  author={D{\'e}fossez, Alexandre},
+  booktitle={Proceedings of the ISMIR 2021 Workshop on Music Source Separation},
+  year={2021}
 }
 
 ### Montreal Forced Aligner (MFA)
@@ -57,15 +49,18 @@ This project leverages the following tools:
 
 ## Licensing
 This project adheres to the licensing terms of the software it incorporates:
-- [MIT License](https://opensource.org/licenses/MIT) for Spleeter and Montreal Forced Aligner.
+- [MIT License](https://opensource.org/licenses/MIT) for Demucs and Montreal Forced Aligner.
+- [ISC License](https://opensource.org/licenses/ISC) for Librosa.
 
-This project itself is licensed under GPL. Please review the `LICENSE` file for more details.
+This project itself is licensed under AGPL. Please review the `LICENSE` file for more details.
 
 ## Acknowledgements
 
 This project would not be possible without the contributions of:
-- [Deezer's Spleeter](https://github.com/deezer/spleeter), for their open-source music source separation library.
+- [Demucs](https://github.com/adefossez/demucs), for their open-source music source separation library.
 - [Montreal Forced Aligner](https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner), for their alignment tools.
+- [Librosa](https://github.com/librosa/librosa), for their open-source audio analysis tools.
+- [FreeSound](https://freesound.org), for their free database of Creative Commons and similarly licensed audio samples.
+- [CVLTIV8R](https://freesound.org/people/CVLTIV8R/), for his/her/their contribution of instrument samples.
 
-Thank you to the developers and maintainers of these invaluable tools.
-
+Thank you to the developers and maintainers of these invaluable tools as well as the artists who provide these invaluable sounds.

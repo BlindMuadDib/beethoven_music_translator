@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="form-container">
+    <h2>Login</h2>
+
+    {% if login_user_form.errors %}
+    <div style="background-color: 58181F; color: #F0A0A0; padding: 10px; border-radius: 4px; margin-bottom: 15px; border: 1px solid #822C33;">
+        {% for field, errors in login_user_form.errors.items() %}
+            {% for error in errors %}
+                <p style="margin: 0;">{{ error }}</p>
+            {% endfor %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    <form action="{{ url_for_security('login') }}" method="POST" name="login_user_form">
+        {{ login_user_form.hidden_tag() }}
+
+        <div>
+            <label for="email">Email Address</label>
+            {{ login_user_form.email(placeholder="email@example.com") }}
+        </div>
+
+        <div>
+            <label for="password">Password</label>
+            {{ login_user_form.password() }}
+        </div>
+
+        <div>
+            <label>
+                {{ login_user_form.remember() }} Remember Me
+            </label>
+        </div>
+
+        <button type="submit">Login</button>
+    </form>
+
+    {% if security.oauth.providers %}
+    <div style="margin-top: 20px; border-top: 1px solid #444; padding-top: 20px;">
+        <p>Or sign in with:</p>
+        {% for provider in security.oauth.providers %}
+            <form action="{{ url_for_security('oauthstart', name=provider.name) }}" method="POST">
+                <button type="submit" style="background-color: #DB4437;">Sign in with {{ provider.display_name }}</button>
+            </form>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <p style="margin-top: 15px; font-size: 0.9em;">
+        <a href="{{ url_for('security.register') }}">Need an account? Register here.</a><br>
+        <a href="{{ url_for('security.forgot_password') }}">Forgot Password?</a>
+    </p>
+</div>
+{% endblock %}

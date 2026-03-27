@@ -1,0 +1,15 @@
+.git
+.gitignore
+venv
+__pycache__
+tests
+*.md
+*.mp3
+*.wav
+*.mkv
+data
+k8s
+kind-control-plane
+github
+rook
+node_modules

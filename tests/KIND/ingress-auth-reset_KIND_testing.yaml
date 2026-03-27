@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: musictranslator-auth-reset-ingress
+  annotations:
+    # Rewrite the path: /auth/_reset_db => /_reset_db
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      # Capture the segment after /auth to pass to rewrite-target
+      - path: /auth(/|$)(_reset_db.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 45769

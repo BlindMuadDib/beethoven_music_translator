@@ -1,0 +1,26 @@
+[
+    {
+        "artist": "Blood Calcification",
+        "title": "No More",
+        "filename_prefix": "BloodCalcification-NoMore",
+        "license": "Creative Commons"
+    },
+    {
+        "artist": "Blood Calcification",
+        "title": "Out of Time",
+        "filename_prefix": "BloodCalcification-OutofTime",
+        "license": "Creative Commons"
+    },
+    {
+        "artist": "Blood Calcification",
+        "title": "Skin Deep",
+        "filename_prefix": "BloodCalcification-SkinDeep",
+        "license": "Creative Commons"
+    },
+    {
+        "artist": "Depressed",
+        "title": "Richard Omelette",
+        "filename_prefix": "Depressed-RichardOmelette",
+        "license": "Creative Commons"
+    }
+]

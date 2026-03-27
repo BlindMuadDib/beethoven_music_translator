@@ -1,0 +1,24 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: musictranslator-auth-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "60m"
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /auth
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 45769
+  tls:
+  - hosts:
+    - musictranslator.org
+    - www.musictranslator.org
+    secretName: tls-cert

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Music Translator Auth{% endblock %}</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <a href="/" style="text-decoration: none; color: #eeeeee;">
+                    <h1>Music Translator for and by Deaf</h1>
+                </a>
+            </div>
+            <div id="auth-links-container">
+                <div id="logged-in-view">
+                    {% if current_user.is_authenticated %}
+                        <span id="user-greeting">{{ current_user.email }}</span>
+                        <a href="{{ url_for('security.logout') }}">Logout</a>
+                    {% endif %}
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div style="margin-top: 40px;">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="form-container" style="background-color: #333; border-color: #555;">
+                {% for category, message in messages %}
+                    <p class="{{ category }}">{{ message }}</p>
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

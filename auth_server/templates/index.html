@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="form-container" style="text-align: center;">
+    <h1>Welcome!</h1>
+    {% if current_user.is_authenticated %}
+        <p>You are logged in as <strong>{{ current_user.email }}</strong>.</p>
+        {% if current_user.has_role('admin') %}
+            <a href="{{ url_for('admin_index') }}" class="button">Go to Admin Panel</a>
+        {% endif %}
+    {% else %}
+        <p>Please choose an option:</p>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <a href="{{ url_for('security.login') }}"><button>Login</button></a>
+            <a href="{{ url_for('request_access') }}"><button style="background-color: #444;">Request Access</button></a>
+            <a href="{{ url_for('security.register')  }}"><button style="background-color: #444;">Register (Requires Admin Approval)</button></a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

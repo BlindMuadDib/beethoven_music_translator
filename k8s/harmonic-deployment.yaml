@@ -1,0 +1,70 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harmonic-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: harmonic-client
+  template:
+    metadata:
+      labels:
+        app: harmonic-client
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      containers:
+        - name: harmonic-client-container
+          image: docker.io/blindmuaddib/harmonic-endpoint:1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 20006
+          readinessProbe:
+            httpGet:
+              path: /harmonic/health
+              port: 20006
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /harmonic/health
+              port: 20006
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          env:
+            - name: HARMONIC_CPU_WORKERS
+              value: "1"
+            - name: OMP_NUM_THREADS
+              value: "8"
+            - name: OPENBLAS_NUM_THREADS
+              value: "8"
+            - name: MKL_NUM_THREADS
+              value: "8"
+            - name: NUMBA_NUM_THREADS
+              value: "8"
+            - name: VECLIB_MAXIMUM_THREADS
+              value: "8"
+            - name: NUMEXPR_NUM_THREADS
+              value: "8"
+          resources:
+            requests:
+              cpu: "4"
+              memory: "16Gi"
+            limits:
+              cpu: "6"
+              memory: "24Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+

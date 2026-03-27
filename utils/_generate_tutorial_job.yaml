@@ -1,0 +1,27 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tutorial-generator-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: generator
+        # Use the generator image
+        image: docker.io/blindmuaddib/tutorial_generator:latest
+        env:
+        # We tell the script to write to /mnt/shared/tutorial
+        - name: TUTORIAL_OUTPUT_DIR
+          value: "/mnt/shared/tutorial"
+        volumeMounts:
+        - name: shared-data
+          mountPath: "/mnt/shared/tutorial"
+        volumeMounts:
+        - name: shared-data
+          mountPath: "/mnt/shared"
+      restartPolicy: OnFailure
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc

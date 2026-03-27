@@ -1,0 +1,43 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beethoven-deployment
+  labels:
+    app: beethoven
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: beethoven
+  template:
+    metadata:
+      labels:
+        app: beethoven
+    spec:
+      containers:
+        - name: nginx
+          image: docker.io/blindmuaddib/beethoven:0.1.4
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "5Gi"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+            - name: shared-data
+              mountPath: /usr/share/nginx/html/data/tutorial
+              subPath: tutorial
+              readOnly: true
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+
+

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Translator for and by Deaf (Alpha)</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <h1>Music Translator for and by Deaf</h1>
+            </div>
+
+            <div id="nav-actions">
+                <button id="library-btn" class="nav-btn">
+                    Library
+                </button>
+                <button id="tutorial-btn" class="nav-btn">
+                    Watch Tutorial
+                </button>
+
+                <div id="auth-links-container">
+                    <div id="logged-out-view" style="display: inline-block;">
+                        <a href="/auth/login">Login</a>
+                        <a href="/auth/register">Register</a>
+                        <a href="/auth/request-access">Request Access</a>
+                    </div>
+                    <div id="logged-in-view" style="display: none;">
+                        <span id="user-greeting"></span>
+                        <a href="/auth/logout">Logout</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div id="upload-ui-container">
+        <p>Welcome! Upload a <strong>.wav</strong> audio file and its corresponding <strong>.txt</strong> lyrics. Lyrics
+            are optional, allowing instrumental uploads.</p>
+        <p>Uploaded files will be used only for processing your translation request and are not saved to our database.
+        </p>
+
+        <div class="preferences-container">
+            <label for="disable-auto-tutorial">
+                <input type="checkbox" id="disable-auto-tutorial"> Don't play tutorial while loading
+            </label>
+        </div>
+
+        <div class="form-container">
+            <form id="translate-form">
+                <div>
+                    <label for="audio">Audio File (.wav):</label>
+                    <input type="file" id="audio" name="audio" accept="audio/wav" required>
+                </div>
+                <div>
+                    <label for="lyrics">Lyrics File (.txt):</label>
+                    <input type="file" id="lyrics" name="lyrics" accept="text/plain">
+                </div>
+                <button type="submit" id="submit-button">Translate</button>
+            </form>
+
+            <div class="local-upload-container">
+                <p><strong>Or, upload local files:</strong></p>
+                <div>
+                    <label for="local-file-input" class="local-upload-label">
+                        1. Upload Translation File (.mtr)
+                    </label>
+                    <input type="file" id="local-file-input" accept=".mtr,.zip">
+                </div>
+                <div>
+                    <label for="local-audio-input" class="local-upload-label">
+                        2. Upload Audio File (.wav)
+                    </label>
+                    <input type="file" id="local-audio-input" accept="audio/wav">
+                </div>
+            </div>
+        </div>
+        <div id="status-message" style="display: none; margin-top: 1em;"></div>
+        <div id="loading-indicator" style="display: none;">Processing... Please wait. This may take several minutes.
+        </div>
+        <div id="error-message" style="display: none;"></div>
+        <div id="result-display" style="display: none;"></div>
+        <hr style="margin-top: 30px;">
+        <p>Source code: <a href="https://github.com/BlindMuadDib/beethoven_music_translator" target="_blank">GitHub
+                Repository</a></p>
+        <p>Email us at info@musictranslator.org with any questions! Bugs and feature requests can be submitted to
+            GitHub. If you don't have an account, our info email is fine too.</p>
+        <p>We need training data, so if you own the rights to music, please let us know at admin@musictranslator.org!
+        </p>
+    </div>
+
+    <div id="library-ui-container" style="display: none;">
+        <h2>Creative Commons Library</h2>
+        <p class="library-disclaimer">All songs in this library are shared under Creative Commons licensing or explicit
+            permission of the copyright owner.</p>
+        <div id="library-songs-list"></div>
+    </div>
+
+    <div id="player-ui-container">
+        <div id="tutorial-overlay">
+            <strong>Tutorial Mode</strong>
+            <span id="tutorial-status-text"> - Explaining visualization features...</span>
+            <button id="skip-tutorial-btn">Exit Tutorial</button>
+            <button id="view-result-btn">Translation Ready! Click to View</button>
+        </div>
+
+        <div id="upper-stack-container">
+            <div id="volume-tracker-container">
+                <div class="volume-legend">Overall Relative Volume</div>
+                <canvas id="overall-volume-canvas">Your browser does not support canvas for volume tracking.</canvas>
+            </div>
+
+            <div id="right-stack-container">
+                <div id="lyric-tracker-container">
+                    <canvas id="lyric-canvas">Your browser does not support canvas for lyric tracking.</canvas>
+                </div>
+                <div id="trackers-row-container">
+                    <div id="drum-tracker-container">
+                        <div class="drum-legend"> Drum Track</div>
+                        <canvas id="drum-canvas">Your browser does not support canvas for Drum tracking.</canvas>
+                    </div>
+                    <div id="harmonic-visualizer-container">
+                        <div id="frequency-axis"></div>
+                        <canvas id="harmonic-canvas">Your browser does not support canvas for F0 tracking.</canvas>
+                        <div id="chroma-key"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="audio-player-wrapper">
+            <h3 id="song-title" style="margin-top: 0; margin-bottom: 5px;">Song Title</h3>
+            <p id="song-metadata" style="font-size: 0.9em; color: #555; margin-bottom: 10px;">Artist - Album</p>
+            <audio id="audio-player" controls style="width: 100%;">
+                Your browser does not support the audio player.
+            </audio>
+            <div id="custom-controls"
+                style="margin-top: 10px; display: flex; justify-content: space-around; align-items: center;">
+                <button id="player-play-pause">Play</button>
+                <button id="player-stop">Stop</button>
+                <button id="player-rewind" title="Rewind 5s">&laquo; 5s</button>
+                <button id="player-ffwd" title="Fast-Forward 5s">5s &raquo;</button>
+                <div style="display: flex; align-items: center;">
+                    <label for="volume-control" style="margin-right: 5px;">Volume:</label>
+                    <input type="range" id="volume-control" min="0" max="1" step="0.01" value="0" title="Volume">
+                </div>
+            </div>
+            <div id="download-container" style="margin-top: 15px; text-align: center; display: none;">
+                <button id="download-mtr-btn" style="padding: 8px; margin-top: 5px;">
+                    Download Translation (.mtr)
+                </button>
+                <p style="font-size: 0.8em; color: #666; margin-top: 5px;">
+                    Save this file to load this translation instantly next time.
+                </p>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="/js/main.js?v=0.1.4"></script>
+</body>
+
+</html>

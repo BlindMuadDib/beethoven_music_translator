@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="form-container" style="max-width: 800px">
+    <h2>Access Requests</h2>
+    <table border="1" style="width: 100%; border-collapse: collapse; color: #eee;">
+        <tr style="background-color: #333;">
+            <th style="padding: 8px;">ID</th>
+            <th style="padding: 8px;">Email</th>
+            <th style="padding: 8px;">Status</th>
+            <th style="padding: 8px;">Action</th>
+        </tr>
+        {% for req in requests %}
+        <tr>
+            <td style="padding: 8px;">{{ req.id }}</td>
+            <td style="padding: 8px;">{{ req.email }}</td>
+            <td style="padding: 8px; color: {{ '#90EE90' if req.approved else '#FFA07A' }}">
+                {{ 'Approved' if req.approved else 'Pending' }}
+            </td>
+            <td style="padding: 8px">
+                {% if not req.approved %}
+                <form method="POST" action="{{ url_for('admin_approve', req_id=req.id) }}">
+                    <button type="submit" style="padding: 5px; font-size: 0.8em;">Approve</button>
+                </form>
+                {% else %}
+                -
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    <br>
+    <a href="{{ url_for('index') }}">Back to Home</a>
+</div>
+{% endblock %}

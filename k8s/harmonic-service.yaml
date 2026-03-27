@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harmonic-service
+spec:
+  selector:
+    app: harmonic-client
+  ports:
+    - name: http
+      protocol: TCP
+      port: 20006
+      targetPort: 20006
+

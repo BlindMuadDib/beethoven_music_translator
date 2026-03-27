@@ -1,0 +1,46 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: musictranslator-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "60m"
+    nginx.ingress.kubernetes.io/redirect-from-www: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /api/harmonic
+        pathType: Prefix
+        backend:
+          service:
+            name: harmonic-service
+            port:
+              number: 20006
+      - path: /api/files
+        pathType: Prefix
+        backend:
+          service:
+            name: translator-service
+            port:
+              number: 20005
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: translator-service
+            port:
+              number: 20005
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: beethoven-service
+            port:
+              number: 80
+  tls:
+  - hosts:
+      - musictranslator.org
+      - www.musictranslator.org
+    secretName: tls-cert

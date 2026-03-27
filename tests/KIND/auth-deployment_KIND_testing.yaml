@@ -1,0 +1,66 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-server-deployment
+  labels:
+    app: auth-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-server
+  template:
+    metadata:
+      labels:
+        app: auth-server
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      containers:
+      - name: auth-server
+        image: docker.io/blindmuaddib/auth-server:1.3
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 45769
+        resources:
+          limits:
+            memory: "10Gi"
+            cpu: "500m"
+          requests:
+            memory: "1Gi"
+            cpu: "100m"
+        env:
+          - name: FLASK_ENV
+            value: "testing"
+          - name: SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: auth-server-secrets
+                key: SECRET_KEY
+          - name: SECURITY_PASSWORD_SALT
+            valueFrom:
+              secretKeyRef:
+                name: auth-server-secrets
+                key: SECRET_PASSWORD_SALT
+          - name: ADMIN_INITIAL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: auth-server-secrets
+                key: ADMIN_INITIAL_PASSWORD
+
+          - name: POSTGRES_USER
+            valueFrom:
+              secretKeyRef:
+                name: translator-admin.auth-db-cluster.credentials.postgresql.acid.zalan.do
+                key: username
+          - name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: translator-admin.auth-db-cluster.credentials.postgresql.acid.zalan.do
+                key: password
+          - name: POSTGRES_DB
+            value: "auth_db"
+          - name: POSTGRES_HOST
+            value: "auth-db-cluster.zalando.svc.cluster.local"
